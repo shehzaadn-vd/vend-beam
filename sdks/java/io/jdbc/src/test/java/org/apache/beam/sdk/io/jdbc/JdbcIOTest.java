@@ -31,6 +31,8 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import javax.sql.DataSource;
+
+import com.google.common.collect.ImmutableList;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -38,6 +40,8 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.io.common.DatabaseTestHelper;
 import org.apache.beam.sdk.io.common.NetworkTestHelper;
 import org.apache.beam.sdk.io.common.TestRow;
+import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.transforms.Select;
 import org.apache.beam.sdk.testing.ExpectedLogs;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -46,6 +50,7 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.Row;
 import org.apache.commons.dbcp2.PoolingDataSource;
 import org.apache.derby.drda.NetworkServerControl;
 import org.apache.derby.jdbc.ClientDataSource;
@@ -65,7 +70,7 @@ import org.slf4j.LoggerFactory;
 public class JdbcIOTest implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(JdbcIOTest.class);
-  private static final int EXPECTED_ROW_COUNT = 1000;
+  private static final int EXPECTED_ROW_COUNT = 3;
   private static final String BACKOFF_TABLE = "UT_WRITE_BACKOFF";
 
   private static NetworkServerControl derbyServer;
@@ -440,5 +445,63 @@ public class JdbcIOTest implements Serializable {
                     }));
 
     pipeline.run();
+  }
+
+  @Test
+  public void runWordCount() {
+
+//    WordCountOptions options =
+//    Pipeline p = Pipeline.create();
+//
+//    JdbcIO.Read<ResultSet> read = JdbcIO.<ResultSet>read()
+//            .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(
+//                    "com.mysql.jdbc.Driver", "jdbc:mysql://localhost:3306/munchies")
+//                    .withUsername("root")
+//                    .withPassword("root"))
+//            .withQuery("SELECT id, name FROM products");
+//                    .withCoder(KvCoder.of(BigEndianIntegerCoder.of(), StringUtf8Coder.of()))
+//                    .withCoder(SchemaCoder.of())
+
+    Schema expectedSchema = Schema.of(
+            Schema.Field.of("name", Schema.FieldType.STRING),
+            Schema.Field.of("id", Schema.FieldType.INT32));
+
+//    PCollection<TestRow> rows =
+//            pipeline.apply(
+//                    JdbcIO.<TestRow>read()
+//                            .withFetchSize(12)
+//                            .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
+//                            .withQuery("select name,id from " + readTableName)
+//                            .withRowMapper(new JdbcTestHelper.CreateTestRowOfNameAndId())
+//                            .withCoder(SerializableCoder.of(TestRow.class)));
+
+    PCollection<Row> rows =
+            pipeline.apply(
+                    JdbcIO.readRowWithSchema()
+                            .withFetchSize(12)
+                            .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
+                            .withQuery("select name, id from " + readTableName)
+//                            .withRowMapper(new JdbcIO.RowMapper<Row>() {
+//                              @Override
+//                              public Row mapRow(ResultSet resultSet) throws Exception {
+//                                Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+//                                return JdbcUtils.toBeamRow(schema, resultSet);
+//                              }
+//                            })
+                            );//.setRowSchema(expectedSchema);
+
+    PCollection<Row> output = rows.apply(Select.fieldNames("id", "name"));
+
+    PAssert.that(output)
+            .containsInAnyOrder(
+                    ImmutableList.of(
+                            Row.withSchema(expectedSchema).addValues("Testval0", 0).build(),
+                            Row.withSchema(expectedSchema).addValues("Testval1", 1).build(),
+                            Row.withSchema(expectedSchema).addValues("Testval2", 2).build()));
+
+    pipeline.run();
+
+//        .apply("WriteCounts", TextIO.write().to(options.getOutput()));
+//    p.run().waitUntilFinish();
   }
 }

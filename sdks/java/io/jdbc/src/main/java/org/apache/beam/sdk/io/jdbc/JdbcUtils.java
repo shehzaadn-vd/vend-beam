@@ -1,7 +1,8 @@
-package org.apache.beam.sdk.schemas.utils;
+package org.apache.beam.sdk.io.jdbc;
 
 import org.apache.beam.sdk.schemas.LogicalTypes;
 import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
 import java.sql.ResultSet;
@@ -115,5 +116,40 @@ public class JdbcUtils {
     public static Schema fromResultSetToSchema(ResultSet resultSet) throws SQLException {
         return fromResultSetMetaData(resultSet.getMetaData());
     }
+
+
+    /**
+     * Tries to convert a JDBC {@link ResultSet} row into a Beam {@link Row}.
+     */
+    public static Row toBeamRow(Schema rowSchema, ResultSet resultSet) {
+        return rowSchema.getFields().stream()
+                .map(field -> {
+                    try {
+                        return toBeamRowFieldValue(field, resultSet.getObject(field.getName()));
+                    } catch (SQLException e) {
+//                        throw new SQLException(e);
+                        return null; // fixme: handle exception
+                    }
+                }).collect(Row.toRow(rowSchema));
+    }
+
+    public static final JdbcIO.Read.ToBeamRowFunction<ResultSet> tableRowToBeamRow() {
+        return beamSchema -> (ResultSet rs) -> toBeamRow(beamSchema, rs);
+    }
+
+    private static Object toBeamRowFieldValue(Schema.Field field, Object jdbcRowValue) {
+        if (jdbcRowValue == null) {
+            if (field.getType().getNullable())
+                return null;
+            else
+                throw new IllegalArgumentException("Received null value for non-nullable field " + field.getName());
+        }
+        System.out.println("Mapping field "+ field.getName()+" to "+jdbcRowValue);
+        return jdbcRowValue;
+    }
+
+//    public static final JdbcIO.Read.FromBeamRowFunction<ResultSet> tableRowFromBeamRow() {
+//        return ignored -> JdbcUtils::toTableRow;
+//    }
 
 }

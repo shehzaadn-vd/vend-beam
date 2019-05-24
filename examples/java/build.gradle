@@ -49,6 +49,8 @@ dependencies {
   shadow project(path: ":sdks:java:core", configuration: "shadow")
   shadow project(path: ":sdks:java:extensions:google-cloud-platform-core", configuration: "shadow")
   shadow project(path: ":sdks:java:io:google-cloud-platform", configuration: "shadow")
+  shadow project(path: ":sdks:java:io:jdbc", configuration: "shadow")
+  shadow library.java.jdbc_driver
   shadow library.java.google_api_client
   shadow library.java.google_api_services_bigquery
   shadow library.java.google_http_client

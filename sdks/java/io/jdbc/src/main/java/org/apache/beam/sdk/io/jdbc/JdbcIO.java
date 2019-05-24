@@ -33,7 +33,10 @@ import javax.annotation.Nullable;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.RowCoder;
+import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
@@ -50,10 +53,7 @@ import org.apache.beam.sdk.util.BackOff;
 import org.apache.beam.sdk.util.BackOffUtils;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.util.Sleeper;
-import org.apache.beam.sdk.values.PBegin;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.*;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.dbcp2.DataSourceConnectionFactory;
 import org.apache.commons.dbcp2.PoolableConnectionFactory;
@@ -183,9 +183,26 @@ public class JdbcIO {
    */
   public static <T> Read<T> read() {
     return new AutoValue_JdbcIO_Read.Builder<T>()
-        .setFetchSize(DEFAULT_FETCH_SIZE)
-        .setOutputParallelization(true)
-        .build();
+            .setFetchSize(DEFAULT_FETCH_SIZE)
+            .setOutputParallelization(true)
+//            .setToBeamRowFn(JdbcUtils.tableRowToBeamRow())
+            .build();
+  }
+
+  /**
+   * Read data from a JDBC datasource.
+   */
+  public static Read<Row> readRowWithSchema() {
+
+    JdbcIO.RowMapper rowMapper = new JdbcIO.RowMapper<Row>() {
+      @Override
+      public Row mapRow(ResultSet resultSet) throws Exception {
+        Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+        return JdbcUtils.toBeamRow(schema, resultSet);
+      }
+    };
+
+    return JdbcIO.<Row>read().withRowMapper(rowMapper); /*SerializableCoder.of(Row.class)*/ /* convert result set into a Row here */
   }
 
   /**
@@ -242,6 +259,16 @@ public class JdbcIO {
   @FunctionalInterface
   public interface RowMapper<T> extends Serializable {
     T mapRow(ResultSet resultSet) throws Exception;
+  }
+
+
+  /**
+   * An interface used by {@link JdbcIO.Read} for converting each row of the {@link ResultSet} into
+   * an element of the resulting {@link PCollection}.
+   */
+  @FunctionalInterface
+  public interface BeamSchemaRowMapper<T> extends Serializable {
+    T mapRow(ResultSet resultSet, Schema schema) throws Exception;
   }
 
   /**
@@ -434,6 +461,11 @@ public class JdbcIO {
   /** Implementation of {@link #read}. */
   @AutoValue
   public abstract static class Read<T> extends PTransform<PBegin, PCollection<T>> {
+
+    interface ToBeamRowFunction<T> extends SerializableFunction<Schema, SerializableFunction<T, Row>> {}
+
+    interface FromBeamRowFunction<T> extends SerializableFunction<Schema, SerializableFunction<Row, T>> {}
+
     /** @deprecated It is not needed anymore. It will be removed in a future version of Beam. */
     @Deprecated
     @Nullable
@@ -458,6 +490,14 @@ public class JdbcIO {
 
     abstract boolean getOutputParallelization();
 
+    @Nullable
+    @Experimental(Experimental.Kind.SCHEMAS)
+    abstract ToBeamRowFunction<T> getToBeamRowFn();
+
+//    @Nullable
+//    @Experimental(Experimental.Kind.SCHEMAS)
+//    abstract FromBeamRowFunction<T> getFromBeamRowFn();
+
     abstract Builder<T> toBuilder();
 
     @AutoValue.Builder
@@ -480,6 +520,12 @@ public class JdbcIO {
       abstract Builder<T> setFetchSize(int fetchSize);
 
       abstract Builder<T> setOutputParallelization(boolean outputParallelization);
+
+      @Experimental(Experimental.Kind.SCHEMAS)
+      abstract Builder<T> setToBeamRowFn(ToBeamRowFunction<T> toRowFn);
+
+//      @Experimental(Experimental.Kind.SCHEMAS)
+//      abstract Builder<T> setFromBeamRowFn(FromBeamRowFunction<T> fromRowFn);
 
       abstract Read<T> build();
     }
@@ -536,6 +582,10 @@ public class JdbcIO {
     public Read<T> withOutputParallelization(boolean outputParallelization) {
       return toBuilder().setOutputParallelization(outputParallelization).build();
     }
+
+//    public Read<T> withToBeamRowFn(ToBeamRowFunction<T> toRowFn) {
+//      return toBuilder().setToBeamRowFn(toRowFn).build();
+//    }
 
     @Override
     public PCollection<T> expand(PBegin input) {
@@ -706,7 +756,6 @@ public class JdbcIO {
                           getRowMapper(),
                           getFetchSize())))
               .setCoder(getCoder());
-
       if (getOutputParallelization()) {
         output = output.apply(new Reparallelize<>());
       }
@@ -764,6 +813,7 @@ public class JdbcIO {
         statement.setFetchSize(fetchSize);
         parameterSetter.setParameters(context.element(), statement);
         try (ResultSet resultSet = statement.executeQuery()) {
+          Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
           while (resultSet.next()) {
             context.output(rowMapper.mapRow(resultSet));
           }
