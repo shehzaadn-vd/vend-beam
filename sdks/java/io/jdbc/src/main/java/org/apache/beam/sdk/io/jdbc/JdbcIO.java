@@ -34,7 +34,6 @@ import javax.sql.DataSource;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
 import org.apache.beam.sdk.coders.RowCoder;
-import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.Create;
@@ -176,6 +175,9 @@ public class JdbcIO {
 
   private static final Logger LOG = LoggerFactory.getLogger(JdbcIO.class);
 
+  private static Schema BEAM_SCHEMA = null;
+  private static Boolean IS_SCHEMA_ENABLED = false;
+
   /**
    * Read data from a JDBC datasource.
    *
@@ -189,20 +191,21 @@ public class JdbcIO {
             .build();
   }
 
-  /**
-   * Read data from a JDBC datasource.
-   */
-  public static Read<Row> readRowWithSchema() {
-
-    JdbcIO.RowMapper rowMapper = new JdbcIO.RowMapper<Row>() {
+  public static Read<Row> readWithSchema() {
+    return JdbcIO.<Row>read().withBeamRowMapper(new JdbcIO.BeamRowMapper<Row>() {
       @Override
-      public Row mapRow(ResultSet resultSet) throws Exception {
-        Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+      public Row mapBeamRow(ResultSet resultSet, Schema schema) throws Exception {
         return JdbcUtils.toBeamRow(schema, resultSet);
       }
-    };
+    }).withCoder(RowCoder.of(BEAM_SCHEMA));
 
-    return JdbcIO.<Row>read().withRowMapper(rowMapper); /*SerializableCoder.of(Row.class)*/ /* convert result set into a Row here */
+//    return JdbcIO.<Row>read().withBeamRowMapper(new JdbcIO.RowMapper<Row>() {
+//      @Override
+//      public Row mapBeamRow(ResultSet resultSet, Schema schema) throws Exception {
+//        Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+//        return null; //JdbcUtils.toBeamRow(schema, resultSet);
+//      }
+//    }).withCoder(SerializableCoder.of(Row.class));
   }
 
   /**
@@ -261,14 +264,9 @@ public class JdbcIO {
     T mapRow(ResultSet resultSet) throws Exception;
   }
 
-
-  /**
-   * An interface used by {@link JdbcIO.Read} for converting each row of the {@link ResultSet} into
-   * an element of the resulting {@link PCollection}.
-   */
   @FunctionalInterface
-  public interface BeamSchemaRowMapper<T> extends Serializable {
-    T mapRow(ResultSet resultSet, Schema schema) throws Exception;
+  public interface BeamRowMapper<T> extends Serializable {
+    T mapBeamRow(ResultSet resultSet, Schema schema) throws Exception;
   }
 
   /**
@@ -515,6 +513,8 @@ public class JdbcIO {
 
       abstract Builder<T> setRowMapper(RowMapper<T> rowMapper);
 
+      abstract Builder<T> setBeamRowMapper(BeamRowMapper<T> beamRowMapper);
+
       abstract Builder<T> setCoder(Coder<T> coder);
 
       abstract Builder<T> setFetchSize(int fetchSize);
@@ -558,6 +558,10 @@ public class JdbcIO {
     public Read<T> withRowMapper(RowMapper<T> rowMapper) {
       checkArgument(rowMapper != null, "rowMapper can not be null");
       return toBuilder().setRowMapper(rowMapper).build();
+    }
+
+    private Read<T> withBeamRowMapper(BeamRowMapper<T> beamRowMapper) {
+      return toBuilder().setBeamRowMapper(beamRowMapper).build();
     }
 
     public Read<T> withCoder(Coder<T> coder) {
@@ -781,6 +785,7 @@ public class JdbcIO {
     private final ValueProvider<String> query;
     private final PreparedStatementSetter<ParameterT> parameterSetter;
     private final RowMapper<OutputT> rowMapper;
+    private final BeamRowMapper<OutputT> beamRowMapper = null;
     private final int fetchSize;
 
     private DataSource dataSource;
@@ -815,7 +820,17 @@ public class JdbcIO {
         try (ResultSet resultSet = statement.executeQuery()) {
           Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
           while (resultSet.next()) {
-            context.output(rowMapper.mapRow(resultSet));
+            if(!IS_SCHEMA_ENABLED && BEAM_SCHEMA == null) {
+              //Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+              IS_SCHEMA_ENABLED = true;
+              BEAM_SCHEMA = schema;
+            }
+
+            if(IS_SCHEMA_ENABLED) {
+              context.output(beamRowMapper.mapBeamRow(resultSet, BEAM_SCHEMA));
+            }else {
+              context.output(rowMapper.mapRow(resultSet));
+            }
           }
         }
       }

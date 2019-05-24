@@ -477,7 +477,7 @@ public class JdbcIOTest implements Serializable {
 
     PCollection<Row> rows =
             pipeline.apply(
-                    JdbcIO.readRowWithSchema()
+                    JdbcIO.readWithSchema()
                             .withFetchSize(12)
                             .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
                             .withQuery("select name, id from " + readTableName)
