@@ -4,6 +4,7 @@ import org.apache.beam.sdk.schemas.LogicalTypes;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.Schema.FieldType;
 import org.apache.beam.sdk.schemas.Schema.Field;
+import org.apache.beam.sdk.values.Row;
 import org.joda.time.Instant;
 
 import java.sql.ResultSet;
@@ -66,7 +67,7 @@ public class JdbcUtils {
         }
     }
 
-    private static Schema fromResultSetMetaData(ResultSetMetaData metaData) throws SQLException {
+    public static Schema fromResultSetMetaDataToSchema(ResultSetMetaData metaData) throws SQLException  {
         Schema.Builder schemaBuilder = Schema.builder();
         for (int i = 1; i <= metaData.getColumnCount(); i++) {
             FieldType fieldType = fromFieldType(metaData.getColumnType(i));
@@ -78,7 +79,33 @@ public class JdbcUtils {
 
     /** Convert a JDBC {@link ResultSet} to a Beam {@link Schema}. */
     public static Schema fromResultSetToSchema(ResultSet resultSet) throws SQLException {
-        return fromResultSetMetaData(resultSet.getMetaData());
+        return fromResultSetMetaDataToSchema(resultSet.getMetaData());
+    }
+
+
+    /**
+     * Tries to convert a JDBC {@link ResultSet} row into a Beam {@link Row}.
+     */
+    public static Row toBeamRow(Schema rowSchema, ResultSet resultSet) {
+        return rowSchema.getFields().stream()
+                .map(field -> {
+                    try {
+                        return toBeamRowFieldValue(field, resultSet.getObject(field.getName()));
+                    } catch (SQLException e) {
+                        return null; // fixme: handle exception
+                    }
+                }).collect(Row.toRow(rowSchema));
+    }
+
+    private static Object toBeamRowFieldValue(Schema.Field field, Object jdbcRowValue) {
+        if (jdbcRowValue == null) {
+            if (field.getType().getNullable())
+                return null;
+            else
+                throw new IllegalArgumentException("Received null value for non-nullable field " + field.getName());
+        }
+        System.out.println("Mapping field "+ field.getName()+" to "+jdbcRowValue);
+        return jdbcRowValue;
     }
 
 }

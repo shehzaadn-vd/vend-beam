@@ -31,6 +31,8 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import javax.sql.DataSource;
+
+import org.apache.beam.repackaged.test_utils.com.google.common.collect.ImmutableList;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -38,6 +40,8 @@ import org.apache.beam.sdk.coders.VarIntCoder;
 import org.apache.beam.sdk.io.common.DatabaseTestHelper;
 import org.apache.beam.sdk.io.common.NetworkTestHelper;
 import org.apache.beam.sdk.io.common.TestRow;
+import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.schemas.transforms.Select;
 import org.apache.beam.sdk.testing.ExpectedLogs;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -46,26 +50,33 @@ import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.Row;
 import org.apache.commons.dbcp2.PoolingDataSource;
 import org.apache.derby.drda.NetworkServerControl;
 import org.apache.derby.jdbc.ClientDataSource;
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.*;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.sql.DataSource;
+import java.io.PrintWriter;
+import java.io.Serializable;
+import java.io.StringWriter;
+import java.net.InetAddress;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.Collections;
+
+import static org.junit.Assert.assertTrue;
 
 /** Test on the JdbcIO. */
 @RunWith(JUnit4.class)
 public class JdbcIOTest implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(JdbcIOTest.class);
-  private static final int EXPECTED_ROW_COUNT = 1000;
+  private static final int EXPECTED_ROW_COUNT = 3;
   private static final String BACKOFF_TABLE = "UT_WRITE_BACKOFF";
 
   private static NetworkServerControl derbyServer;
@@ -438,6 +449,32 @@ public class JdbcIOTest implements Serializable {
                       statement.setInt(1, element.getKey());
                       statement.setString(2, element.getValue());
                     }));
+
+    pipeline.run();
+  }
+
+  @Test
+  public void testReadWithSchema() {
+
+    Schema expectedSchema = Schema.of(
+            Schema.Field.of("NAME", Schema.FieldType.STRING),
+            Schema.Field.of("ID", Schema.FieldType.INT32));
+
+    PCollection<Row> rows =
+            pipeline.apply(
+                    JdbcIO.readRowWithSchema()
+                            .withFetchSize(12)
+                            .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
+                            .withQuery("select name, id from " + readTableName));
+
+    PCollection<Row> output = rows.apply(Select.fieldNames("NAME", "ID"));
+
+    PAssert.that(output)
+            .containsInAnyOrder(
+                    ImmutableList.of(
+                            Row.withSchema(expectedSchema).addValues("Testval0", 0).build(),
+                            Row.withSchema(expectedSchema).addValues("Testval1", 1).build(),
+                            Row.withSchema(expectedSchema).addValues("Testval2", 2).build()));
 
     pipeline.run();
   }

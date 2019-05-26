@@ -17,43 +17,20 @@
  */
 package org.apache.beam.sdk.io.jdbc;
 
-import static org.apache.beam.vendor.guava.v20_0.com.google.common.base.Preconditions.checkArgument;
-
 import com.google.auto.value.AutoValue;
-import java.io.IOException;
-import java.io.Serializable;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Predicate;
-import javax.annotation.Nullable;
-import javax.sql.DataSource;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.Filter;
-import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.Reshuffle;
-import org.apache.beam.sdk.transforms.SerializableFunction;
-import org.apache.beam.sdk.transforms.SerializableFunctions;
-import org.apache.beam.sdk.transforms.View;
-import org.apache.beam.sdk.transforms.Wait;
+import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.display.HasDisplayData;
 import org.apache.beam.sdk.util.BackOff;
 import org.apache.beam.sdk.util.BackOffUtils;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.util.Sleeper;
-import org.apache.beam.sdk.values.PBegin;
-import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionView;
-import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.*;
 import org.apache.commons.dbcp2.BasicDataSource;
 import org.apache.commons.dbcp2.DataSourceConnectionFactory;
 import org.apache.commons.dbcp2.PoolableConnectionFactory;
@@ -63,6 +40,20 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.annotation.Nullable;
+import javax.sql.DataSource;
+import java.io.IOException;
+import java.io.Serializable;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
+
+import static org.apache.beam.vendor.guava.v20_0.com.google.common.base.Preconditions.checkArgument;
 
 /**
  * IO to read and write data on JDBC.
@@ -189,6 +180,20 @@ public class JdbcIO {
   }
 
   /**
+   * Read data from a JDBC datasource in the form of beam {@link Row} with auto generated schema.
+   */
+  public static Read<Row> readRowWithSchema() {
+    // .withBeamSchema(true) means the internal implementation will prefer usage of JdbcIO.BeamSchemaRowMapper over JdbcIO.RowMapper for ResultSet mapping
+    return JdbcIO.<Row>read()
+            .withBeamSchemaRowMapper(new JdbcIO.BeamSchemaRowMapper<Row>() {
+              @Override
+              public Row mapRow(ResultSet resultSet, Schema schema) throws Exception {
+                return JdbcUtils.toBeamRow(schema, resultSet); // convert ResultSet into Row with schema
+              }
+            }).withBeamSchema(true).withCoder(SerializableCoder.of(Row.class));
+  }
+
+  /**
    * Like {@link #read}, but executes multiple instances of the query substituting each element of a
    * {@link PCollection} as query parameters.
    *
@@ -242,6 +247,16 @@ public class JdbcIO {
   @FunctionalInterface
   public interface RowMapper<T> extends Serializable {
     T mapRow(ResultSet resultSet) throws Exception;
+  }
+
+
+  /**
+   * An internal interface used by {@link JdbcIO.Read}.readRowWithSchema() for converting each row of the {@link ResultSet} into
+   * a beam Row object having schema.
+   */
+  @FunctionalInterface
+  public interface BeamSchemaRowMapper<T> extends Serializable {
+    T mapRow(ResultSet resultSet, Schema schema) throws Exception;
   }
 
   /**
@@ -452,6 +467,12 @@ public class JdbcIO {
     abstract RowMapper<T> getRowMapper();
 
     @Nullable
+    abstract BeamSchemaRowMapper<T> getBeamSchemaRowMapper();
+
+    @Nullable
+    abstract Boolean getWithBeamSchema();
+
+    @Nullable
     abstract Coder<T> getCoder();
 
     abstract int getFetchSize();
@@ -474,6 +495,10 @@ public class JdbcIO {
       abstract Builder<T> setStatementPreparator(StatementPreparator statementPreparator);
 
       abstract Builder<T> setRowMapper(RowMapper<T> rowMapper);
+
+      abstract Builder<T> setBeamSchemaRowMapper(BeamSchemaRowMapper<T> beamSchemaRowMapper);
+
+      abstract Builder<T> setWithBeamSchema(Boolean autoGenerateBeamSchema);
 
       abstract Builder<T> setCoder(Coder<T> coder);
 
@@ -499,6 +524,10 @@ public class JdbcIO {
       return withQuery(ValueProvider.StaticValueProvider.of(query));
     }
 
+    public Read<T> withBeamSchema(boolean autoGenerateBeamSchema) {
+      return toBuilder().setWithBeamSchema(autoGenerateBeamSchema).build();
+    }
+
     public Read<T> withQuery(ValueProvider<String> query) {
       checkArgument(query != null, "query can not be null");
       return toBuilder().setQuery(query).build();
@@ -512,6 +541,11 @@ public class JdbcIO {
     public Read<T> withRowMapper(RowMapper<T> rowMapper) {
       checkArgument(rowMapper != null, "rowMapper can not be null");
       return toBuilder().setRowMapper(rowMapper).build();
+    }
+
+    private Read<T> withBeamSchemaRowMapper(BeamSchemaRowMapper<T> beamSchemaRowMapper) {
+      checkArgument(beamSchemaRowMapper != null, "beamSchemaRowMapper can not be null");
+      return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
     }
 
     public Read<T> withCoder(Coder<T> coder) {
@@ -540,36 +574,49 @@ public class JdbcIO {
     @Override
     public PCollection<T> expand(PBegin input) {
       checkArgument(getQuery() != null, "withQuery() is required");
-      checkArgument(getRowMapper() != null, "withRowMapper() is required");
+      // getWithBeamSchema() is true then getBeamSchemaRowMapper() must not be null
+      checkArgument((getWithBeamSchema() == null || !getWithBeamSchema()) || getBeamSchemaRowMapper() != null, "withBeamSchemaRowMapper() is required");
+      // if getWithBeamSchema() is null or false then getRowMapper() must not be null
+      checkArgument((getWithBeamSchema() != null && getWithBeamSchema() ) || getRowMapper() != null, "withRowMapper() is required");
+//      checkArgument((getRowMapper() != null || (getWithBeamSchema() != null && getWithBeamSchema() && getBeamSchemaRowMapper() != null)), "withRowMapper() is required");
       checkArgument(getCoder() != null, "withCoder() is required");
       checkArgument(
           (getDataSourceProviderFn() != null),
           "withDataSourceConfiguration() or withDataSourceProviderFn() is required");
 
-      return input
-          .apply(Create.of((Void) null))
-          .apply(
-              JdbcIO.<Void, T>readAll()
-                  .withDataSourceConfiguration(getDataSourceConfiguration())
-                  .withDataSourceProviderFn(getDataSourceProviderFn())
-                  .withQuery(getQuery())
-                  .withCoder(getCoder())
-                  .withRowMapper(getRowMapper())
-                  .withFetchSize(getFetchSize())
-                  .withOutputParallelization(getOutputParallelization())
-                  .withParameterSetter(
+      ReadAll<Void, T> readAll = JdbcIO.<Void, T>readAll()
+              .withDataSourceConfiguration(getDataSourceConfiguration())
+              .withDataSourceProviderFn(getDataSourceProviderFn())
+              .withQuery(getQuery())
+              .withCoder(getCoder())
+              .withFetchSize(getFetchSize())
+              .withOutputParallelization(getOutputParallelization())
+              .withBeamSchema(getWithBeamSchema())
+              .withParameterSetter(
                       (element, preparedStatement) -> {
                         if (getStatementPreparator() != null) {
                           getStatementPreparator().setParameters(preparedStatement);
                         }
-                      }));
+                      });
+
+      if ((getWithBeamSchema() == null || !getWithBeamSchema()))
+        readAll = readAll.withRowMapper(getRowMapper());
+      else
+        readAll = readAll.withBeamSchemaRowMapper(getBeamSchemaRowMapper());
+
+      return input
+          .apply(Create.of((Void) null))
+          .apply(readAll);
     }
 
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder.add(DisplayData.item("query", getQuery()));
-      builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      if (getWithBeamSchema() == null || !getWithBeamSchema())
+        builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      else if (getBeamSchemaRowMapper() != null)
+        builder.add(DisplayData.item("beamSchemaRowMapper", getBeamSchemaRowMapper().getClass().getName()));
       builder.add(DisplayData.item("coder", getCoder().getClass().getName()));
       if (getDataSourceProviderFn() instanceof HasDisplayData) {
         ((HasDisplayData) getDataSourceProviderFn()).populateDisplayData(builder);
@@ -599,6 +646,12 @@ public class JdbcIO {
     abstract RowMapper<OutputT> getRowMapper();
 
     @Nullable
+    abstract Boolean getWithBeamSchema();
+
+    @Nullable
+    abstract BeamSchemaRowMapper<OutputT> getBeamSchemaRowMapper();
+
+    @Nullable
     abstract Coder<OutputT> getCoder();
 
     abstract int getFetchSize();
@@ -623,6 +676,10 @@ public class JdbcIO {
           PreparedStatementSetter<ParameterT> parameterSetter);
 
       abstract Builder<ParameterT, OutputT> setRowMapper(RowMapper<OutputT> rowMapper);
+
+      abstract Builder<ParameterT, OutputT> setBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper);
+
+      abstract Builder<ParameterT, OutputT> setWithBeamSchema(Boolean withBeamSchema);
 
       abstract Builder<ParameterT, OutputT> setCoder(Coder<OutputT> coder);
 
@@ -670,6 +727,15 @@ public class JdbcIO {
       return toBuilder().setRowMapper(rowMapper).build();
     }
 
+    public ReadAll<ParameterT, OutputT> withBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper) {
+        checkArgument(beamSchemaRowMapper != null, "JdbcIO.readAll().withBeamSchemaRowMapper(beamSchemaRowMapper) called with null rowMapper");
+        return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
+    }
+
+    public ReadAll<ParameterT, OutputT> withBeamSchema(Boolean withBeamSchema) {
+        return toBuilder().setWithBeamSchema(withBeamSchema != null && withBeamSchema).build();
+    }
+
     public ReadAll<ParameterT, OutputT> withCoder(Coder<OutputT> coder) {
       checkArgument(coder != null, "JdbcIO.readAll().withCoder(coder) called with null coder");
       return toBuilder().setCoder(coder).build();
@@ -695,6 +761,8 @@ public class JdbcIO {
 
     @Override
     public PCollection<OutputT> expand(PCollection<ParameterT> input) {
+
+      Schema schema = generateSchemaFromQuery();
       PCollection<OutputT> output =
           input
               .apply(
@@ -704,21 +772,40 @@ public class JdbcIO {
                           getQuery(),
                           getParameterSetter(),
                           getRowMapper(),
-                          getFetchSize())))
+                          getFetchSize(),
+                          getBeamSchemaRowMapper(),
+                          getWithBeamSchema() != null && getWithBeamSchema(),
+                          schema)))
               .setCoder(getCoder());
-
       if (getOutputParallelization()) {
         output = output.apply(new Reparallelize<>());
       }
 
+      if (getWithBeamSchema() != null && getWithBeamSchema()) {
+        output = output.setRowSchema(schema);
+      }
+
       return output;
+    }
+
+    private Schema generateSchemaFromQuery() {
+      try {
+        Connection connection = getDataSourceProviderFn().apply(null).getConnection();
+        PreparedStatement statement = connection.prepareStatement(getQuery().get(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        return JdbcUtils.fromResultSetMetaDataToSchema(statement.getMetaData());
+      } catch (SQLException e) {
+        throw new RuntimeException("Error while trying to get connection from getDataSourceProviderFn()");
+      }
     }
 
     @Override
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder.add(DisplayData.item("query", getQuery()));
-      builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      if (getWithBeamSchema() == null || !getWithBeamSchema())
+        builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      else if (getBeamSchemaRowMapper() != null)
+        builder.add(DisplayData.item("beamSchemaRowMapper", getBeamSchemaRowMapper().getClass().getName()));
       builder.add(DisplayData.item("coder", getCoder().getClass().getName()));
       if (getDataSourceProviderFn() instanceof HasDisplayData) {
         ((HasDisplayData) getDataSourceProviderFn()).populateDisplayData(builder);
@@ -733,6 +820,9 @@ public class JdbcIO {
     private final PreparedStatementSetter<ParameterT> parameterSetter;
     private final RowMapper<OutputT> rowMapper;
     private final int fetchSize;
+    private final BeamSchemaRowMapper<OutputT> beamSchemaRowMapper;
+    private final boolean withBeamSchema;
+    private final Schema schema;
 
     private DataSource dataSource;
     private Connection connection;
@@ -742,12 +832,18 @@ public class JdbcIO {
         ValueProvider<String> query,
         PreparedStatementSetter<ParameterT> parameterSetter,
         RowMapper<OutputT> rowMapper,
-        int fetchSize) {
+        int fetchSize,
+        BeamSchemaRowMapper<OutputT> beamSchemaRowMapper,
+        boolean withBeamSchema,
+        Schema schema) {
       this.dataSourceProviderFn = dataSourceProviderFn;
       this.query = query;
       this.parameterSetter = parameterSetter;
       this.rowMapper = rowMapper;
       this.fetchSize = fetchSize;
+      this.beamSchemaRowMapper = beamSchemaRowMapper;
+      this.withBeamSchema = withBeamSchema;
+      this.schema = schema;
     }
 
     @Setup
@@ -765,7 +861,10 @@ public class JdbcIO {
         parameterSetter.setParameters(context.element(), statement);
         try (ResultSet resultSet = statement.executeQuery()) {
           while (resultSet.next()) {
-            context.output(rowMapper.mapRow(resultSet));
+            if (withBeamSchema)
+              context.output(beamSchemaRowMapper.mapRow(resultSet, schema));
+            else
+              context.output(rowMapper.mapRow(resultSet));
           }
         }
       }
