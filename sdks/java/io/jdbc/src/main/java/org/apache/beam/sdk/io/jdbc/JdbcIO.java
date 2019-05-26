@@ -482,6 +482,11 @@ public class JdbcIO {
     abstract RowMapper<T> getRowMapper();
 
     @Nullable
+    abstract BeamSchemaRowMapper<T> getBeamSchemaRowMapper();
+
+    abstract boolean getWithBeamSchema();
+
+    @Nullable
     abstract Coder<T> getCoder();
 
     abstract int getFetchSize();
@@ -653,13 +658,13 @@ public class JdbcIO {
     @Nullable
     abstract ValueProvider<String> getQuery();
 
-    abstract boolean getWithBeamSchema();
-
     @Nullable
     abstract PreparedStatementSetter<ParameterT> getParameterSetter();
 
     @Nullable
     abstract RowMapper<OutputT> getRowMapper();
+
+    abstract boolean getWithBeamSchema();
 
     @Nullable
     abstract BeamSchemaRowMapper<OutputT> getBeamSchemaRowMapper();
@@ -689,6 +694,10 @@ public class JdbcIO {
           PreparedStatementSetter<ParameterT> parameterSetter);
 
       abstract Builder<ParameterT, OutputT> setRowMapper(RowMapper<OutputT> rowMapper);
+
+      abstract Builder<ParameterT, OutputT> setBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper);
+
+      abstract Builder<ParameterT, OutputT> setWithBeamSchema(boolean withBeamSchema);
 
       abstract Builder<ParameterT, OutputT> setCoder(Coder<OutputT> coder);
 
