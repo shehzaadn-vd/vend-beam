@@ -99,8 +99,7 @@ public class JdbcUtils {
         }
     }
 
-    /**  */
-    private static Schema fromResultSetMetaData(ResultSetMetaData metaData) throws SQLException  {
+    public static Schema fromResultSetMetaDataToSchema(ResultSetMetaData metaData) throws SQLException  {
         Schema.Builder schemaBuilder = Schema.builder();
 
         for (int i = 1; i <= metaData.getColumnCount(); i++) {
@@ -114,7 +113,7 @@ public class JdbcUtils {
 
     /** Convert a JDBC {@link ResultSet} to a Beam {@link Schema}. */
     public static Schema fromResultSetToSchema(ResultSet resultSet) throws SQLException {
-        return fromResultSetMetaData(resultSet.getMetaData());
+        return fromResultSetMetaDataToSchema(resultSet.getMetaData());
     }
 
 

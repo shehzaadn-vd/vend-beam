@@ -194,15 +194,13 @@ public class JdbcIO {
    */
   public static Read<Row> readRowWithSchema() {
 
-    JdbcIO.RowMapper rowMapper = new JdbcIO.RowMapper<Row>() {
-      @Override
-      public Row mapRow(ResultSet resultSet) throws Exception {
-        Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
-        return JdbcUtils.toBeamRow(schema, resultSet);
-      }
-    };
-
-    return JdbcIO.<Row>read().withRowMapper(rowMapper); /*SerializableCoder.of(Row.class)*/ /* convert result set into a Row here */
+    return JdbcIO.<Row>read()
+            .withBeamSchemaRowMapper(new JdbcIO.BeamSchemaRowMapper<Row>() {
+              @Override
+              public Row mapRow(ResultSet resultSet, Schema schema) throws Exception {
+                return JdbcUtils.toBeamRow(schema, resultSet);
+              }
+            }).withBeamSchema(true); /*SerializableCoder.of(Row.class)*/ /* convert result set into a Row here */
   }
 
   /**
@@ -511,9 +509,13 @@ public class JdbcIO {
 
       abstract Builder<T> setQuery(ValueProvider<String> query);
 
+      abstract Builder<T> setWithBeamSchema(boolean autoGenerateBeamSchema);
+
       abstract Builder<T> setStatementPreparator(StatementPreparator statementPreparator);
 
       abstract Builder<T> setRowMapper(RowMapper<T> rowMapper);
+
+      abstract Builder<T> setBeamSchemaRowMapper(BeamSchemaRowMapper<T> beamSchemaRowMapper);
 
       abstract Builder<T> setCoder(Coder<T> coder);
 
@@ -545,6 +547,10 @@ public class JdbcIO {
       return withQuery(ValueProvider.StaticValueProvider.of(query));
     }
 
+    public Read<T> withBeamSchema(boolean autoGenerateBeamSchema) {
+      return toBuilder().setWithBeamSchema(autoGenerateBeamSchema).build();
+    }
+
     public Read<T> withQuery(ValueProvider<String> query) {
       checkArgument(query != null, "query can not be null");
       return toBuilder().setQuery(query).build();
@@ -558,6 +564,11 @@ public class JdbcIO {
     public Read<T> withRowMapper(RowMapper<T> rowMapper) {
       checkArgument(rowMapper != null, "rowMapper can not be null");
       return toBuilder().setRowMapper(rowMapper).build();
+    }
+
+    private Read<T> withBeamSchemaRowMapper(BeamSchemaRowMapper<T> beamSchemaRowMapper) {
+      checkArgument(beamSchemaRowMapper != null, "beamSchemaRowMapper can not be null");
+      return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
     }
 
     public Read<T> withCoder(Coder<T> coder) {
@@ -642,11 +653,16 @@ public class JdbcIO {
     @Nullable
     abstract ValueProvider<String> getQuery();
 
+    abstract boolean getWithBeamSchema();
+
     @Nullable
     abstract PreparedStatementSetter<ParameterT> getParameterSetter();
 
     @Nullable
     abstract RowMapper<OutputT> getRowMapper();
+
+    @Nullable
+    abstract BeamSchemaRowMapper<OutputT> getBeamSchemaRowMapper();
 
     @Nullable
     abstract Coder<OutputT> getCoder();
@@ -745,6 +761,8 @@ public class JdbcIO {
 
     @Override
     public PCollection<OutputT> expand(PCollection<ParameterT> input) {
+
+      Schema schema = generateSchemaFromQuery();
       PCollection<OutputT> output =
           input
               .apply(
@@ -754,13 +772,30 @@ public class JdbcIO {
                           getQuery(),
                           getParameterSetter(),
                           getRowMapper(),
-                          getFetchSize())))
+                          getFetchSize(),
+                          getBeamSchemaRowMapper(),
+                          getWithBeamSchema(),
+                          schema)))
               .setCoder(getCoder());
       if (getOutputParallelization()) {
         output = output.apply(new Reparallelize<>());
       }
 
+      if (getWithBeamSchema()) {
+        output.setRowSchema(schema);
+      }
+
       return output;
+    }
+
+    private Schema generateSchemaFromQuery() {
+      try {
+        Connection connection = getDataSourceProviderFn().apply(null).getConnection();
+        PreparedStatement statement = connection.prepareStatement(getQuery().get(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        return JdbcUtils.fromResultSetMetaDataToSchema(statement.getMetaData());
+      } catch (SQLException e) {
+        throw new RuntimeException("Error while trying to get connection from getDataSourceProviderFn()");
+      }
     }
 
     @Override
@@ -782,6 +817,9 @@ public class JdbcIO {
     private final PreparedStatementSetter<ParameterT> parameterSetter;
     private final RowMapper<OutputT> rowMapper;
     private final int fetchSize;
+    private final BeamSchemaRowMapper<OutputT> beamSchemaRowMapper;
+    private final boolean withBeamSchema;
+    private final Schema schema;
 
     private DataSource dataSource;
     private Connection connection;
@@ -791,12 +829,18 @@ public class JdbcIO {
         ValueProvider<String> query,
         PreparedStatementSetter<ParameterT> parameterSetter,
         RowMapper<OutputT> rowMapper,
-        int fetchSize) {
+        int fetchSize,
+        BeamSchemaRowMapper<OutputT> beamSchemaRowMapper,
+        boolean withBeamSchema,
+        Schema schema) {
       this.dataSourceProviderFn = dataSourceProviderFn;
       this.query = query;
       this.parameterSetter = parameterSetter;
       this.rowMapper = rowMapper;
       this.fetchSize = fetchSize;
+      this.beamSchemaRowMapper = beamSchemaRowMapper;
+      this.withBeamSchema = withBeamSchema;
+      this.schema = schema;
     }
 
     @Setup
@@ -813,9 +857,11 @@ public class JdbcIO {
         statement.setFetchSize(fetchSize);
         parameterSetter.setParameters(context.element(), statement);
         try (ResultSet resultSet = statement.executeQuery()) {
-          Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
           while (resultSet.next()) {
-            context.output(rowMapper.mapRow(resultSet));
+            if (withBeamSchema)
+              context.output(beamSchemaRowMapper.mapRow(resultSet, schema));
+            else
+              context.output(rowMapper.mapRow(resultSet));
           }
         }
       }

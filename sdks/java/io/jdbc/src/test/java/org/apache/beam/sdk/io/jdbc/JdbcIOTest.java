@@ -448,7 +448,7 @@ public class JdbcIOTest implements Serializable {
   }
 
   @Test
-  public void runWordCount() {
+  public void testReadWithSchema() {
 
 //    WordCountOptions options =
 //    Pipeline p = Pipeline.create();
