@@ -629,9 +629,9 @@ public class JdbcIO {
                       });
 
       if ((getWithBeamSchema() == null || !getWithBeamSchema()))
-        readAll.withRowMapper(getRowMapper());
+        readAll = readAll.withRowMapper(getRowMapper());
       else
-        readAll.withBeamSchemaRowMapper(getBeamSchemaRowMapper());
+        readAll = readAll.withBeamSchemaRowMapper(getBeamSchemaRowMapper());
 
       return input
           .apply(Create.of((Void) null))
@@ -756,16 +756,16 @@ public class JdbcIO {
       return toBuilder().setRowMapper(rowMapper).build();
     }
 
-      public ReadAll<ParameterT, OutputT> withBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper) {
-          checkArgument(
-                  beamSchemaRowMapper != null,
-                  "JdbcIO.readAll().withBeamSchemaRowMapper(beamSchemaRowMapper) called with null rowMapper");
-          return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
-      }
+    public ReadAll<ParameterT, OutputT> withBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper) {
+        checkArgument(
+                beamSchemaRowMapper != null,
+                "JdbcIO.readAll().withBeamSchemaRowMapper(beamSchemaRowMapper) called with null rowMapper");
+        return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
+    }
 
-      public ReadAll<ParameterT, OutputT> withBeamSchema(Boolean withBeamSchema) {
-          return toBuilder().setWithBeamSchema(withBeamSchema != null && withBeamSchema).build();
-      }
+    public ReadAll<ParameterT, OutputT> withBeamSchema(Boolean withBeamSchema) {
+        return toBuilder().setWithBeamSchema(withBeamSchema != null && withBeamSchema).build();
+    }
 
     public ReadAll<ParameterT, OutputT> withCoder(Coder<OutputT> coder) {
       checkArgument(coder != null, "JdbcIO.readAll().withCoder(coder) called with null coder");
@@ -813,7 +813,7 @@ public class JdbcIO {
       }
 
       if (getWithBeamSchema() != null && getWithBeamSchema()) {
-        output.setRowSchema(schema);
+        output = output.setRowSchema(schema);
       }
 
       return output;

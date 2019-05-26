@@ -481,13 +481,13 @@ public class JdbcIOTest implements Serializable {
                             .withFetchSize(12)
                             .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
                             .withQuery("select name, id from " + readTableName)
-//                            .withRowMapper(new JdbcIO.RowMapper<Row>() {
-//                              @Override
-//                              public Row mapRow(ResultSet resultSet) throws Exception {
-//                                Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
-//                                return JdbcUtils.toBeamRow(schema, resultSet);
-//                              }
-//                            })
+                            .withRowMapper(new JdbcIO.RowMapper<Row>() {
+                              @Override
+                              public Row mapRow(ResultSet resultSet) throws Exception {
+                                Schema schema = JdbcUtils.fromResultSetToSchema(resultSet);
+                                return JdbcUtils.toBeamRow(schema, resultSet);
+                              }
+                            })
                             );//.setRowSchema(expectedSchema);
 
     PCollection<Row> output = rows.apply(Select.fieldNames("NAME", "ID"));
