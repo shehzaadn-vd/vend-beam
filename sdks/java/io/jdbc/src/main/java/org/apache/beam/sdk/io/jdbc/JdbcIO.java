@@ -642,7 +642,10 @@ public class JdbcIO {
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder.add(DisplayData.item("query", getQuery()));
-      builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      if (getWithBeamSchema() == null || !getWithBeamSchema())
+        builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      else if (getBeamSchemaRowMapper() != null)
+        builder.add(DisplayData.item("beamSchemaRowMapper", getBeamSchemaRowMapper().getClass().getName()));
       builder.add(DisplayData.item("coder", getCoder().getClass().getName()));
       if (getDataSourceProviderFn() instanceof HasDisplayData) {
         ((HasDisplayData) getDataSourceProviderFn()).populateDisplayData(builder);
@@ -830,7 +833,10 @@ public class JdbcIO {
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder.add(DisplayData.item("query", getQuery()));
-      builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      if (getWithBeamSchema() == null || !getWithBeamSchema())
+        builder.add(DisplayData.item("rowMapper", getRowMapper().getClass().getName()));
+      else if (getBeamSchemaRowMapper() != null)
+        builder.add(DisplayData.item("beamSchemaRowMapper", getBeamSchemaRowMapper().getClass().getName()));
       builder.add(DisplayData.item("coder", getCoder().getClass().getName()));
       if (getDataSourceProviderFn() instanceof HasDisplayData) {
         ((HasDisplayData) getDataSourceProviderFn()).populateDisplayData(builder);

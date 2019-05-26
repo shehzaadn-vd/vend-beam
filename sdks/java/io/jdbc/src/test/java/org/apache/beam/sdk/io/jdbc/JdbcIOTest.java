@@ -463,8 +463,8 @@ public class JdbcIOTest implements Serializable {
 //                    .withCoder(SchemaCoder.of())
 
     Schema expectedSchema = Schema.of(
-            Schema.Field.of("name", Schema.FieldType.STRING),
-            Schema.Field.of("id", Schema.FieldType.INT32));
+            Schema.Field.of("NAME", Schema.FieldType.STRING),
+            Schema.Field.of("ID", Schema.FieldType.INT32));
 
 //    PCollection<TestRow> rows =
 //            pipeline.apply(
@@ -490,7 +490,7 @@ public class JdbcIOTest implements Serializable {
 //                            })
                             );//.setRowSchema(expectedSchema);
 
-    PCollection<Row> output = rows.apply(Select.fieldNames("id", "name"));
+    PCollection<Row> output = rows.apply(Select.fieldNames("NAME", "ID"));
 
     PAssert.that(output)
             .containsInAnyOrder(
