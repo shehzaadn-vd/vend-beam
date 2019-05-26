@@ -620,6 +620,7 @@ public class JdbcIO {
               .withCoder(getCoder())
               .withFetchSize(getFetchSize())
               .withOutputParallelization(getOutputParallelization())
+              .withBeamSchema(getWithBeamSchema())
               .withParameterSetter(
                       (element, preparedStatement) -> {
                         if (getStatementPreparator() != null) {
@@ -629,6 +630,8 @@ public class JdbcIO {
 
       if ((getWithBeamSchema() == null || !getWithBeamSchema()))
         readAll.withRowMapper(getRowMapper());
+      else
+        readAll.withBeamSchemaRowMapper(getBeamSchemaRowMapper());
 
       return input
           .apply(Create.of((Void) null))
@@ -749,6 +752,17 @@ public class JdbcIO {
           "JdbcIO.readAll().withRowMapper(rowMapper) called with null rowMapper");
       return toBuilder().setRowMapper(rowMapper).build();
     }
+
+      public ReadAll<ParameterT, OutputT> withBeamSchemaRowMapper(BeamSchemaRowMapper<OutputT> beamSchemaRowMapper) {
+          checkArgument(
+                  beamSchemaRowMapper != null,
+                  "JdbcIO.readAll().withBeamSchemaRowMapper(beamSchemaRowMapper) called with null rowMapper");
+          return toBuilder().setBeamSchemaRowMapper(beamSchemaRowMapper).build();
+      }
+
+      public ReadAll<ParameterT, OutputT> withBeamSchema(Boolean withBeamSchema) {
+          return toBuilder().setWithBeamSchema(withBeamSchema != null && withBeamSchema).build();
+      }
 
     public ReadAll<ParameterT, OutputT> withCoder(Coder<OutputT> coder) {
       checkArgument(coder != null, "JdbcIO.readAll().withCoder(coder) called with null coder");
