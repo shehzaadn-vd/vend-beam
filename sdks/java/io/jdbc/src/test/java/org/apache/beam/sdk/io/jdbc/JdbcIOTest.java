@@ -472,4 +472,20 @@ public class JdbcIOTest implements Serializable {
 
     pipeline.run();
   }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testReadWithSchema_WithRowMapper() {
+      pipeline.apply(
+        JdbcIO.readRows()
+          .withFetchSize(12)
+          .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
+          .withRowMapper(new JdbcIO.RowMapper<Row>() {
+            @Override
+            public Row mapRow(ResultSet resultSet) throws Exception {
+              return null;
+            }
+          })
+          .withQuery("select name, id from " + readTableName));
+    pipeline.run();
+  }
 }
