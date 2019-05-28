@@ -70,7 +70,7 @@ import org.slf4j.LoggerFactory;
 public class JdbcIOTest implements Serializable {
 
   private static final Logger LOG = LoggerFactory.getLogger(JdbcIOTest.class);
-  private static final int EXPECTED_ROW_COUNT = 3;
+  private static final int EXPECTED_ROW_COUNT = 1000;
   private static final String BACKOFF_TABLE = "UT_WRITE_BACKOFF";
 
   private static NetworkServerControl derbyServer;
@@ -79,8 +79,7 @@ public class JdbcIOTest implements Serializable {
   private static int port;
   private static String readTableName;
 
-  @Rule
-  public final transient TestPipeline pipeline = TestPipeline.create();
+  @Rule public final transient TestPipeline pipeline = TestPipeline.create();
 
   @Rule public final transient ExpectedLogs expectedLogs = ExpectedLogs.none(JdbcIO.class);
 
