@@ -17,32 +17,9 @@
  */
 package org.apache.beam.sdk.io.jdbc;
 
-import com.google.auto.value.AutoValue;
-import org.apache.beam.sdk.annotations.Experimental;
-import org.apache.beam.sdk.coders.Coder;
-import org.apache.beam.sdk.coders.SerializableCoder;
-import org.apache.beam.sdk.options.ValueProvider;
-import org.apache.beam.sdk.schemas.Schema;
-import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.transforms.display.DisplayData;
-import org.apache.beam.sdk.transforms.display.HasDisplayData;
-import org.apache.beam.sdk.util.BackOff;
-import org.apache.beam.sdk.util.BackOffUtils;
-import org.apache.beam.sdk.util.FluentBackoff;
-import org.apache.beam.sdk.util.Sleeper;
-import org.apache.beam.sdk.values.*;
-import org.apache.commons.dbcp2.BasicDataSource;
-import org.apache.commons.dbcp2.DataSourceConnectionFactory;
-import org.apache.commons.dbcp2.PoolableConnectionFactory;
-import org.apache.commons.dbcp2.PoolingDataSource;
-import org.apache.commons.pool2.impl.GenericObjectPool;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.joda.time.Duration;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.apache.beam.vendor.guava.v20_0.com.google.common.base.Preconditions.checkArgument;
 
-import javax.annotation.Nullable;
-import javax.sql.DataSource;
+import com.google.auto.value.AutoValue;
 import java.io.IOException;
 import java.io.Serializable;
 import java.sql.Connection;
@@ -52,9 +29,43 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
-
-import static org.apache.beam.vendor.guava.v20_0.com.google.common.base.Preconditions.checkArgument;
-
+import javax.annotation.Nullable;
+import javax.sql.DataSource;
+import org.apache.beam.sdk.annotations.Experimental;
+import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.SerializableCoder;
+import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.schemas.Schema;
+import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.DoFn;
+import org.apache.beam.sdk.transforms.Filter;
+import org.apache.beam.sdk.transforms.PTransform;
+import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Reshuffle;
+import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.SerializableFunctions;
+import org.apache.beam.sdk.transforms.View;
+import org.apache.beam.sdk.transforms.Wait;
+import org.apache.beam.sdk.transforms.display.DisplayData;
+import org.apache.beam.sdk.transforms.display.HasDisplayData;
+import org.apache.beam.sdk.util.BackOff;
+import org.apache.beam.sdk.util.BackOffUtils;
+import org.apache.beam.sdk.util.FluentBackoff;
+import org.apache.beam.sdk.util.Sleeper;
+import org.apache.beam.sdk.values.PBegin;
+import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.Row;
+import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.values.PCollectionView;
+import org.apache.commons.dbcp2.BasicDataSource;
+import org.apache.commons.dbcp2.DataSourceConnectionFactory;
+import org.apache.commons.dbcp2.PoolableConnectionFactory;
+import org.apache.commons.dbcp2.PoolingDataSource;
+import org.apache.commons.pool2.impl.GenericObjectPool;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.joda.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * IO to read and write data on JDBC.
  *
@@ -182,15 +193,12 @@ public class JdbcIO {
   /**
    * Read data from a JDBC datasource in the form of beam {@link Row} with auto generated schema.
    */
-  public static Read<Row> readRowWithSchema() {
+  public static Read<Row> readRows() {
     // .withBeamSchema(true) means the internal implementation will prefer usage of JdbcIO.BeamSchemaRowMapper over JdbcIO.RowMapper for ResultSet mapping
     return JdbcIO.<Row>read()
-            .withBeamSchemaRowMapper(new JdbcIO.BeamSchemaRowMapper<Row>() {
-              @Override
-              public Row mapRow(ResultSet resultSet, Schema schema) throws Exception {
-                return JdbcUtils.toBeamRow(schema, resultSet); // convert ResultSet into Row with schema
-              }
-            }).withBeamSchema(true).withCoder(SerializableCoder.of(Row.class));
+            .withBeamSchemaRowMapper(BeamSchemaRowMapperImpl.getInstance())
+            .withBeamSchema(true)
+            .withCoder(SerializableCoder.of(Row.class));
   }
 
   /**
@@ -524,7 +532,7 @@ public class JdbcIO {
       return withQuery(ValueProvider.StaticValueProvider.of(query));
     }
 
-    public Read<T> withBeamSchema(boolean autoGenerateBeamSchema) {
+    private Read<T> withBeamSchema(boolean autoGenerateBeamSchema) {
       return toBuilder().setWithBeamSchema(autoGenerateBeamSchema).build();
     }
 
@@ -578,7 +586,6 @@ public class JdbcIO {
       checkArgument((getWithBeamSchema() == null || !getWithBeamSchema()) || getBeamSchemaRowMapper() != null, "withBeamSchemaRowMapper() is required");
       // if getWithBeamSchema() is null or false then getRowMapper() must not be null
       checkArgument((getWithBeamSchema() != null && getWithBeamSchema() ) || getRowMapper() != null, "withRowMapper() is required");
-//      checkArgument((getRowMapper() != null || (getWithBeamSchema() != null && getWithBeamSchema() && getBeamSchemaRowMapper() != null)), "withRowMapper() is required");
       checkArgument(getCoder() != null, "withCoder() is required");
       checkArgument(
           (getDataSourceProviderFn() != null),
@@ -789,12 +796,11 @@ public class JdbcIO {
     }
 
     private Schema generateSchemaFromQuery() {
-      try {
-        Connection connection = getDataSourceProviderFn().apply(null).getConnection();
-        PreparedStatement statement = connection.prepareStatement(getQuery().get(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+      try (Connection connection = getDataSourceProviderFn().apply(null).getConnection();
+        PreparedStatement statement = connection.prepareStatement(getQuery().get(), ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
         return JdbcUtils.fromResultSetMetaDataToSchema(statement.getMetaData());
       } catch (SQLException e) {
-        throw new RuntimeException("Error while trying to get connection from getDataSourceProviderFn()");
+        throw new RuntimeException("Error while trying to get connection from getDataSourceProviderFn()", e);
       }
     }
 
@@ -1277,6 +1283,24 @@ public class JdbcIO {
         datasource = super.dataSourceProviderFn.apply(null);
       }
       return datasource;
+    }
+  }
+
+  private static class BeamSchemaRowMapperImpl implements BeamSchemaRowMapper<Row>  {
+    private static BeamSchemaRowMapper instance = null;
+
+    private BeamSchemaRowMapperImpl() { }
+
+    public static BeamSchemaRowMapper getInstance() {
+      if(instance == null) {
+        return new BeamSchemaRowMapperImpl();
+      }
+      return instance;
+    }
+
+    @Override
+    public Row mapRow(ResultSet resultSet, Schema schema) throws Exception {
+      return JdbcUtils.toBeamRow(schema, resultSet);
     }
   }
 }

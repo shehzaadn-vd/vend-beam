@@ -82,19 +82,18 @@ public class JdbcUtils {
         return fromResultSetMetaDataToSchema(resultSet.getMetaData());
     }
 
-
     /**
      * Tries to convert a JDBC {@link ResultSet} row into a Beam {@link Row}.
      */
     public static Row toBeamRow(Schema rowSchema, ResultSet resultSet) {
         return rowSchema.getFields().stream()
-                .map(field -> {
-                    try {
-                        return toBeamRowFieldValue(field, resultSet.getObject(field.getName()));
-                    } catch (SQLException e) {
-                        return null; // fixme: handle exception
-                    }
-                }).collect(Row.toRow(rowSchema));
+            .map(field -> {
+                try {
+                    return toBeamRowFieldValue(field, resultSet.getObject(field.getName()));
+                } catch (SQLException e) {
+                   throw new RuntimeException("Error while accessing the column value from database.", e);
+                }
+            }).collect(Row.toRow(rowSchema));
     }
 
     private static Object toBeamRowFieldValue(Schema.Field field, Object jdbcRowValue) {
@@ -104,8 +103,6 @@ public class JdbcUtils {
             else
                 throw new IllegalArgumentException("Received null value for non-nullable field " + field.getName());
         }
-        System.out.println("Mapping field "+ field.getName()+" to "+jdbcRowValue);
         return jdbcRowValue;
     }
-
 }
