@@ -458,16 +458,17 @@ public class JdbcIOTest implements Serializable {
                     JdbcIO.readRows()
                             .withFetchSize(12)
                             .withDataSourceConfiguration(JdbcIO.DataSourceConfiguration.create(dataSource))
-                            .withQuery("select name, id from " + readTableName));
+                            .withQuery(String.format("select name, id from %s where name=? ",readTableName))
+                            .withStatementPreparator(
+                                    preparedStatement ->
+                                            preparedStatement.setString(1, TestRow.getNameForSeed(1))));
 
     PCollection<Row> output = rows.apply(Select.fieldNames("NAME", "ID"));
 
     PAssert.that(output)
             .containsInAnyOrder(
                     ImmutableList.of(
-                            Row.withSchema(expectedSchema).addValues("Testval0", 0).build(),
-                            Row.withSchema(expectedSchema).addValues("Testval1", 1).build(),
-                            Row.withSchema(expectedSchema).addValues("Testval2", 2).build()));
+                            Row.withSchema(expectedSchema).addValues("Testval1", 1).build()));
 
     pipeline.run();
   }
