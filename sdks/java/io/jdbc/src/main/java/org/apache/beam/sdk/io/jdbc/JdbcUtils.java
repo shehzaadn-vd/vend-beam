@@ -1,5 +1,6 @@
 package org.apache.beam.sdk.io.jdbc;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import org.apache.beam.sdk.schemas.LogicalTypes;
 import org.apache.beam.sdk.schemas.Schema;
@@ -15,6 +16,16 @@ import java.sql.Types;
 import java.sql.ResultSet;
 
 public class JdbcUtils {
+
+    @VisibleForTesting
+    static final FieldType FIELD_TYPE_DATETIME = Schema.FieldType.logicalType(
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                    "SqlDateType", "", Schema.FieldType.DATETIME) {});
+
+    @VisibleForTesting
+    static final FieldType FIELD_TYPE_TIMESTAMP = Schema.FieldType.logicalType(
+            new LogicalTypes.PassThroughLogicalType<Instant>(
+                    "SqlTimestampWithLocalTzType", "", Schema.FieldType.DATETIME) {});
 
     /*
      * Mapping of JDBC types to Beam Schema types
@@ -54,17 +65,14 @@ public class JdbcUtils {
         JDBCType jdbcType = JDBCType.valueOf(columnType);
         switch (jdbcType) {
             case ARRAY:
-                if (!JDBC_TO_BEAM_TYPE_MAPPING.containsKey(jdbcType))
+                JDBCType columnTypeNameJdbcType = JDBCType.valueOf(columnTypeName);
+                if (!JDBC_TO_BEAM_TYPE_MAPPING.containsKey(columnTypeNameJdbcType))
                     throw new UnsupportedOperationException("Array of type " + jdbcType.name() + " is not supported");
-                return JDBC_TO_BEAM_TYPE_MAPPING.get(jdbcType);
+                return JDBC_TO_BEAM_TYPE_MAPPING.get(columnTypeNameJdbcType);
             case DATE:
-                return Schema.FieldType.logicalType(
-                        new LogicalTypes.PassThroughLogicalType<Instant>(
-                                "SqlDateType", "", Schema.FieldType.DATETIME) {});
+                return FIELD_TYPE_DATETIME;
             case TIMESTAMP_WITH_TIMEZONE:
-                return Schema.FieldType.logicalType(
-                        new LogicalTypes.PassThroughLogicalType<Instant>(
-                                "SqlTimestampWithLocalTzType", "", Schema.FieldType.DATETIME) {});
+                return FIELD_TYPE_TIMESTAMP;
             default:
                 if (!JDBC_TO_BEAM_TYPE_MAPPING.containsKey(jdbcType)) {
                     throw new UnsupportedOperationException("Representing fields of type [" + jdbcType.name() + "] in Beam schemas is not supported");
