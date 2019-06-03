@@ -23,6 +23,7 @@ from __future__ import division
 import heapq
 import operator
 import random
+import re
 import sys
 import warnings
 from builtins import object
@@ -924,3 +925,248 @@ class LatestCombineFn(core.CombineFn):
 
   def extract_output(self, accumulator):
     return accumulator[0]
+
+
+class Regex(object):
+  """
+  PTransform  to use Regular Expression to process the elements in a
+  PCollection.
+  """
+
+  class Matches(ptransform.PTransform):
+    """
+    Returns the matches if the entire line matched the Regex. Returns the
+    entire line (group 0) as a PCollection
+    """
+
+    def __init__(self, regex, group=None):
+      self.regex = regex
+      self.group = group or 0
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexMatches(regex=self.regex, group=self.group))
+
+  class AllMatches(ptransform.PTransform):
+
+    def __init__(self, regex):
+      self.regex = regex
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(_RegexAllMatches(regex=self.regex))
+
+  class MatchesKV(ptransform.PTransform):
+
+    def __init__(self, regex, keyGroup, valueGroup):
+      self.regex = regex
+      self.keyGroup = keyGroup
+      self.valueGroup = valueGroup
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexMatchesKV(regex=self.regex, keyGroup=self.keyGroup,
+                        valueGroup=self.valueGroup))
+
+  class Find(ptransform.PTransform):
+
+    def __init__(self, regex, group=None):
+      self.regex = regex
+      self.group = group or 0
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(_RegexFind(regex=self.regex, group=self.group))
+
+  class FindAll(ptransform.PTransform):
+
+    def __init__(self, regex):
+      self.regex = regex
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(_RegexAllMatches(regex=self.regex))
+
+  class FindKV(ptransform.PTransform):
+
+    def __init__(self, regex, keyGroup, valueGroup):
+      self.regex = regex
+      self.keyGroup = keyGroup
+      self.valueGroup = valueGroup
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexMatchesKV(regex=self.regex, keyGroup=self.keyGroup,
+                        valueGroup=self.valueGroup))
+
+  class ReplaceAll(ptransform.PTransform):
+
+    def __init__(self, regex, replacement):
+      self.regex = regex
+      self.replacement = replacement
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexReplaceAll(regex=self.regex, replacement=self.replacement))
+
+  class ReplaceFirst(ptransform.PTransform):
+
+    def __init__(self, regex, replacement):
+      self.regex = regex
+      self.replacement = replacement
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexReplaceFirst(regex=self.regex, replacement=self.replacement))
+
+  class Split(ptransform.PTransform):
+
+    def __init__(self, regex, outputEmpty=None):
+      self.regex = regex
+      self.outputEmpty = bool(outputEmpty)
+
+    def expand(self, pcoll):
+      return pcoll | core.ParDo(
+        _RegexSplit(regex=self.regex, outputEmpty=self.outputEmpty))
+
+
+@with_input_types(str)
+@with_output_types(List[str])
+class _RegexFind(core.DoFn):
+
+  def __init__(self, regex, group=None):
+    self.regex = regex
+    self.group = group
+
+  def process(self, element):
+    regex = self.regex
+    group = self.group
+    r = re.search(regex, element)
+    if r:
+      return [r.group(group)]
+    else:
+      return None
+
+
+@with_input_types(str)
+@with_output_types(List[str])
+class _RegexFindAll(core.DoFn):
+
+  def __init__(self, regex, group=None):
+    self.regex = regex
+    self.group = group
+
+  def process(self, element):
+    regex = self.regex
+    group = self.group
+    r = re.search(regex, element)
+    if r:
+      return [r.group(group)]
+    else:
+      return None
+
+
+@with_input_types(str)
+@with_output_types(List[Any])
+class _RegexMatches(core.DoFn):
+
+  def __init__(self, regex, group=None):
+    self.regex = regex
+    self.group = group
+
+  def process(self, element):
+    regex = self.regex
+    group = self.group
+    r = re.match(regex, element)
+    if r:
+      return [r.group(group)]
+    else:
+      return None
+
+
+@with_input_types(str)
+@with_output_types(List[List[Any]])
+class _RegexAllMatches(core.DoFn):
+
+  def __init__(self, regex):
+    self.regex = regex
+
+  def process(self, element):
+    regex = self.regex
+    matches = re.finditer(regex, element)
+    results = list()
+
+    for matchNum, match in enumerate(matches, start=1):
+      results.append(match.group())
+
+      for groupNum in range(0, len(match.groups())):
+        results.append(match.group(groupNum + 1))
+
+    if results:
+      return [results]
+    return None
+
+
+@with_input_types(str)
+@with_output_types(KV[Any, Any])
+class _RegexMatchesKV(core.DoFn):
+
+  def __init__(self, regex, keyGroup, valueGroup):
+    self.regex = regex
+    self.keyGroup = keyGroup
+    self.valueGroup = valueGroup
+
+  def process(self, element):
+    regex = self.regex
+    r = re.match(regex, element)
+    if r:
+      return [(r.group(self.keyGroup), r.group(self.valueGroup))]
+
+    return None
+
+
+@with_input_types(str)
+@with_output_types(List[Any])
+class _RegexReplaceAll(core.DoFn):
+
+  def __init__(self, regex, replacement):
+    self.regex = regex
+    self.replacement = replacement
+
+  def process(self, element):
+    r = re.compile(self.regex)
+    sub_str = r.sub(self.replacement, element)
+    return [sub_str]
+
+
+@with_input_types(str)
+@with_output_types(List[Any])
+class _RegexReplaceFirst(core.DoFn):
+
+  def __init__(self, regex, replacement):
+    self.regex = regex
+    self.replacement = replacement
+
+  def process(self, element):
+    r = re.compile(self.regex)
+    sub_str = r.sub(self.replacement, element, 1)
+    return [sub_str]
+
+
+@with_input_types(str)
+@with_output_types(List[Any])
+class _RegexSplit(core.DoFn):
+
+  def __init__(self, regex, outputEmpty):
+    self.regex = regex
+    self.outputEmpty = outputEmpty
+
+  def process(self, element):
+
+    r = re.split(self.reger, element)
+    if r and not self.outputEmpty:
+
+      # Python 3 returns an iterator from filter, so should be wrapped in a
+      # call to list()
+      if sys.version_info[0] < 3:
+        r = filter(None, r)
+      else:
+        r = list(filter(None, r))
+    return r
