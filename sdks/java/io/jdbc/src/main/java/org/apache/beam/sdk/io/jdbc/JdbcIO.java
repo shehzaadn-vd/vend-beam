@@ -29,6 +29,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.stream.IntStream;
 import javax.annotation.Nullable;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.annotations.Experimental;
@@ -38,6 +39,7 @@ import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.schemas.NoSuchSchemaException;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.SchemaRegistry;
+import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Filter;
@@ -58,6 +60,7 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
 import org.apache.beam.sdk.values.PDone;
+import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.TypeDescriptor;
 import org.apache.commons.dbcp2.BasicDataSource;
@@ -904,7 +907,7 @@ public class JdbcIO {
    * <p>All methods in this class delegate to the appropriate method of {@link JdbcIO.WriteVoid}.
    */
   public static class Write<T> extends PTransform<PCollection<T>, PDone> {
-    final WriteVoid<T> inner;
+    WriteVoid<T> inner;
 
     Write() {
       this(JdbcIO.writeVoid());
@@ -948,6 +951,11 @@ public class JdbcIO {
       return new Write(inner.withRetryStrategy(retryStrategy));
     }
 
+    /** See {@link WriteVoid#withTable(String)}. */
+    public Write<T> withTable(String table) {
+      return new Write(inner.withTable(table));
+    }
+
     /**
      * Returns {@link WriteVoid} transform which can be used in {@link Wait#on(PCollection[])} to
      * wait until all data is written.
@@ -972,11 +980,60 @@ public class JdbcIO {
       inner.populateDisplayData(builder);
     }
 
+    private boolean hasStatementAndSetter() {
+      return inner.getStatement() != null && inner.getPreparedStatementSetter() != null;
+    }
+
     @Override
     public PDone expand(PCollection<T> input) {
+
+      if (input.hasSchema() && !hasStatementAndSetter()) {
+        Schema schema = input.getSchema();
+
+        inner = inner.withStatement(generateStatement(inner.getTable(), schema.getFields()));
+        inner = inner.withPreparedStatementSetter(((element, preparedStatement) -> {
+          // assuming we have PCollection of <Row>. We don't have Row then we will use toRowFunction().
+          // TODO: use toRowFunction() to convert other data types into Row
+          mapAccordingToSchema((Row) element, preparedStatement, schema); // Type casting element into Row is temporary untill we implement usage of toRowFunction()
+        }));
+      }
+
       inner.expand(input);
       return PDone.in(input.getPipeline());
     }
+
+    private void mapAccordingToSchema(Row element, PreparedStatement preparedStatement, Schema schema) {
+      List<Schema.Field> fields = schema.getFields();
+      IntStream.range(0, fields.size()).forEach((index) -> {
+        JdbcUtil.setFieldPreparedStatement(element, preparedStatement, fields.get(index).getType(), index);
+      });
+    }
+
+    private String generateStatement(String tableName, List<Schema.Field> fields) {
+      final StringBuilder statement = new StringBuilder();
+      statement.append("INSERT INTO ")
+              .append(tableName)
+              .append(" (");
+
+      IntStream.range(0, fields.size()).forEach((index) -> {
+        statement.append(fields.get(index).getName());
+        if (index < fields.size() -1) {
+          statement.append(", ");
+        }
+      });
+
+      statement.append(") VALUES (");
+
+      IntStream.range(0, fields.size()).forEach((index) -> {
+        if (index == fields.size() -1)
+          statement.append("?");
+        else
+          statement.append("?, ");
+      });
+      statement.append(")");
+      return statement.toString();
+    }
+
   }
 
   /** A {@link PTransform} to write to a JDBC datasource. */
@@ -1001,6 +1058,9 @@ public class JdbcIO {
     @Nullable
     abstract RetryStrategy getRetryStrategy();
 
+    @Nullable
+    abstract String getTable();
+
     abstract Builder<T> toBuilder();
 
     @AutoValue.Builder
@@ -1019,6 +1079,8 @@ public class JdbcIO {
       abstract Builder<T> setPreparedStatementSetter(PreparedStatementSetter<T> setter);
 
       abstract Builder<T> setRetryStrategy(RetryStrategy deadlockPredicate);
+
+      abstract Builder<T> setTable(String table);
 
       abstract WriteVoid<T> build();
     }
@@ -1063,6 +1125,11 @@ public class JdbcIO {
     public WriteVoid<T> withRetryStrategy(RetryStrategy retryStrategy) {
       checkArgument(retryStrategy != null, "retryStrategy can not be null");
       return toBuilder().setRetryStrategy(retryStrategy).build();
+    }
+
+    public WriteVoid<T> withTable(String table) {
+      checkArgument(table != null, "table name can not be null");
+      return toBuilder().setTable(table).build();
     }
 
     @Override
