@@ -500,6 +500,7 @@ public class JdbcIOTest implements Serializable {
     Schema.Builder schemaBuilder = Schema.builder();
     schemaBuilder.addField(Schema.Field.of("id", Schema.FieldType.INT32));
     schemaBuilder.addField(Schema.Field.of("name", Schema.FieldType.STRING));
+    schemaBuilder.addField(Schema.Field.of("email", Schema.FieldType.STRING));
     Schema schema = schemaBuilder.build();
 
     String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
@@ -526,6 +527,7 @@ public class JdbcIOTest implements Serializable {
     Schema.Builder schemaBuilder = Schema.builder();
     schemaBuilder.addField(Schema.Field.of("id", Schema.FieldType.INT32));
     schemaBuilder.addField(Schema.Field.of("name", Schema.FieldType.STRING));
+    schemaBuilder.addField(Schema.Field.of("email", Schema.FieldType.STRING));
     Schema schema = schemaBuilder.build();
 
     ArrayList<Row> data = new ArrayList<>();

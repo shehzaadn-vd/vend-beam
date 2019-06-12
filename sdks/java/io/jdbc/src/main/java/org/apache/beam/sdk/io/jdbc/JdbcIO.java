@@ -23,12 +23,15 @@ import com.google.auto.value.AutoValue;
 import java.io.IOException;
 import java.io.Serializable;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
 import javax.sql.DataSource;
@@ -990,11 +993,12 @@ public class JdbcIO {
       if (input.hasSchema() && !hasStatementAndSetter()) {
         Schema schema = input.getSchema();
 
-        inner = inner.withStatement(generateStatement(inner.getTable(), schema.getFields()));
+        List<Schema.Field> fields = getFilteredFields(schema);
+        inner = inner.withStatement(generateStatement(inner.getTable(), fields));
         inner = inner.withPreparedStatementSetter(((element, preparedStatement) -> {
           // assuming we have PCollection of <Row>. We don't have Row then we will use toRowFunction().
           // TODO: use toRowFunction() to convert other data types into Row
-          mapAccordingToSchema((Row) element, preparedStatement, schema); // Type casting element into Row is temporary untill we implement usage of toRowFunction()
+          mapAccordingToSchema((Row) element, preparedStatement, schema, fields); // Type casting element into Row is temporary untill we implement usage of toRowFunction()
         }));
       }
 
@@ -1002,11 +1006,40 @@ public class JdbcIO {
       return PDone.in(input.getPipeline());
     }
 
-    private void mapAccordingToSchema(Row element, PreparedStatement preparedStatement, Schema schema) {
+    private List<Schema.Field> getFilteredFields(Schema schema) {
       List<Schema.Field> fields = schema.getFields();
+      Connection connection;
+      try {
+        connection = inner.getDataSourceProviderFn().apply(null).getConnection();
+      } catch (Exception e) {
+        throw new RuntimeException("Error while determining columns from table: " + inner.getTable());
+      }
+      List<String> databaseColumnList = getTableColumnList(connection);
+      fields = fields.stream().filter((field) -> {
+        return databaseColumnList.contains(field.getName().toLowerCase());
+      }).collect(Collectors.toList());
+      return fields;
+    }
+
+    private void mapAccordingToSchema(Row element, PreparedStatement preparedStatement, Schema schema, List<Schema.Field> fields) {
+//      List<Schema.Field> fields = schema.getFields();
       IntStream.range(0, fields.size()).forEach((index) -> {
         JdbcUtil.setFieldPreparedStatement(element, preparedStatement, fields.get(index).getType(), index);
       });
+    }
+
+    private List<String> getTableColumnList(Connection connection) {
+      try {
+        List<String> tableColumns = new ArrayList<>();
+        // get columns of database table
+        ResultSet resultSet = connection.getMetaData().getColumns(null, null, inner.getTable(), null);
+        while (resultSet.next()) {
+          tableColumns.add(resultSet.getString("column_name").toLowerCase());
+        }
+        return tableColumns;
+      } catch (Exception e) {
+        throw new RuntimeException("Error while determining columns from table: " + inner.getTable());
+      }
     }
 
     private String generateStatement(String tableName, List<Schema.Field> fields) {
