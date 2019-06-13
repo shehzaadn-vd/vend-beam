@@ -10,6 +10,8 @@ import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.StringJoiner;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class JdbcUtil {
@@ -64,10 +66,15 @@ public class JdbcUtil {
                     switch (jdbcType) {
                         case DATE:
                             preparedStatement.setDate(index + 1, new Date(element.getDateTime(index).getMillis()));
+                            break;
                         case TIME:
                             preparedStatement.setTime(index + 1, new Time(element.getDateTime(index).getMillis()));
+                            break;
                         case TIMESTAMP_WITH_TIMEZONE:
                             preparedStatement.setTimestamp(index + 1, new Timestamp(element.getDateTime(index).getMillis()));
+                            break;
+                        default:
+                            break;
                     }
                 }
             }
@@ -78,27 +85,15 @@ public class JdbcUtil {
     }
 
     public static String generateStatement(String tableName, List<Schema.Field> fields) {
-        final StringBuilder statement = new StringBuilder();
-        statement.append("INSERT INTO ")
-                .append(tableName)
-                .append(" (");
 
-        IntStream.range(0, fields.size()).forEach((index) -> {
-            statement.append(fields.get(index).getName());
-            if (index < fields.size() -1) {
-                statement.append(", ");
-            }
-        });
+        String fieldNames = IntStream.range(0, fields.size()).mapToObj((index) -> {
+            return fields.get(index).getName();
+        }).collect(Collectors.joining(", "));
 
-        statement.append(") VALUES (");
+        String values = IntStream.range(0, fields.size()).mapToObj((index) -> {
+            return "?";
+        }).collect(Collectors.joining(","));
 
-        IntStream.range(0, fields.size()).forEach((index) -> {
-            if (index == fields.size() -1)
-                statement.append("?");
-            else
-                statement.append("?, ");
-        });
-        statement.append(")");
-        return statement.toString();
+        return "INSERT INTO "+tableName+" ("+fieldNames+") VALUES("+values+")";
     }
 }
