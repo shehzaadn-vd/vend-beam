@@ -3,13 +3,18 @@ package org.apache.beam.sdk.io.jdbc;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
+import java.sql.Date;
+import java.sql.JDBCType;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.List;
+import java.util.stream.IntStream;
 
 public class JdbcUtil {
-    //fixme: rename method
-    public static void setFieldPreparedStatement(Row element, PreparedStatement preparedStatement, Schema.FieldType fieldType, int index) {
+
+    public static void mapDataAccordingToSchema(Row element, PreparedStatement preparedStatement, Schema.FieldType fieldType, int index) {
         try {
             switch (fieldType.getTypeName()) {
                 case BYTE: // One-byte signed integer.
@@ -46,20 +51,54 @@ public class JdbcUtil {
                     preparedStatement.setBytes(index + 1, element.getBytes(index));
                     break;
                 case ARRAY:
-                    //TODO: WIP
-//          preparedStatement.setArray(index + 1, element.getArray(index));
+                    preparedStatement.setArray(index + 1,
+                            preparedStatement.getConnection().createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(index).toArray()));
                     break;
-//          throw new RuntimeException("Arrays in schema are not a supported while writing. Please provide statement and preparedStatementSetter");
                 case MAP:
-                    throw new RuntimeException("Maps in schema are not a supported while writing. Please provide statement and preparedStatementSetter");
+                    throw new RuntimeException("Map in schema is not supported while writing. Please provide statement and preparedStatementSetter");
                 case ROW: // The field is itself a nested row.
-                    //TODO: WIP
-                case LOGICAL_TYPE:
-                    //TODO: WIP
+                    throw new RuntimeException("Row in schema is not supported while writing. Please provide statement and preparedStatementSetter");
+                case LOGICAL_TYPE: {
+                    String logicalTypeName = fieldType.getLogicalType().getIdentifier();
+                    JDBCType jdbcType = JDBCType.valueOf(logicalTypeName);
+                    switch (jdbcType) {
+                        case DATE:
+                            preparedStatement.setDate(index + 1, new Date(element.getDateTime(index).getMillis()));
+                        case TIME:
+                            preparedStatement.setTime(index + 1, new Time(element.getDateTime(index).getMillis()));
+                        case TIMESTAMP_WITH_TIMEZONE:
+                            preparedStatement.setTimestamp(index + 1, new Timestamp(element.getDateTime(index).getMillis()));
+                    }
+                }
             }
         }
         catch (SQLException | NullPointerException e) {
             throw new RuntimeException("Error while setting data to preparedStatement", e);
         }
+    }
+
+    public static String generateStatement(String tableName, List<Schema.Field> fields) {
+        final StringBuilder statement = new StringBuilder();
+        statement.append("INSERT INTO ")
+                .append(tableName)
+                .append(" (");
+
+        IntStream.range(0, fields.size()).forEach((index) -> {
+            statement.append(fields.get(index).getName());
+            if (index < fields.size() -1) {
+                statement.append(", ");
+            }
+        });
+
+        statement.append(") VALUES (");
+
+        IntStream.range(0, fields.size()).forEach((index) -> {
+            if (index == fields.size() -1)
+                statement.append("?");
+            else
+                statement.append("?, ");
+        });
+        statement.append(")");
+        return statement.toString();
     }
 }
