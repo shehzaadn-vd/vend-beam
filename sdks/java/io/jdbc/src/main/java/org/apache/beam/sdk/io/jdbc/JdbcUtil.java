@@ -1,65 +1,55 @@
 package org.apache.beam.sdk.io.jdbc;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.values.Row;
 
+import java.io.Serializable;
 import java.sql.Date;
 import java.sql.JDBCType;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.EnumMap;
 import java.util.List;
-import java.util.StringJoiner;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class JdbcUtil {
 
+    /**
+     * Interface implemented by functions that sets prepared statement data
+     */
+    @FunctionalInterface
+    interface PreparedStatementSetCaller extends Serializable {
+        void set(Row element, PreparedStatement preparedStatement, int index) throws SQLException;
+    }
+
+    // PreparedStatementSetCaller for primitive schema types (excluding arrays, structs and logical types).
+    private static final EnumMap<Schema.TypeName, PreparedStatementSetCaller>
+            PREPARED_STATEMENT_DATA_SETTER = new EnumMap<>(
+                    ImmutableMap.<Schema.TypeName, PreparedStatementSetCaller>builder()
+                            .put(Schema.TypeName.BYTE, (element, ps, index) -> ps.setByte(index + 1, element.getByte(index)))
+                            .put(Schema.TypeName.INT16, (element, ps, index) -> ps.setInt(index + 1, element.getInt16(index)))
+                            .put(Schema.TypeName.INT32, (element, ps, index) -> ps.setInt(index + 1, element.getInt32(index)))
+                            .put(Schema.TypeName.INT64, (element, ps, index) -> ps.setLong(index + 1, element.getInt64(index)))
+                            .put(Schema.TypeName.DECIMAL, (element, ps, index) -> ps.setBigDecimal(index + 1, element.getDecimal(index)))
+                            .put(Schema.TypeName.FLOAT, (element, ps, index) -> ps.setFloat(index + 1, element.getFloat(index)))
+                            .put(Schema.TypeName.DOUBLE, (element, ps, index) -> ps.setDouble(index + 1, element.getDouble(index)))
+                            .put(Schema.TypeName.STRING, (element, ps, index) -> ps.setString(index + 1, element.getString(index)))
+                            .put(Schema.TypeName.DATETIME, (element, ps, index) -> ps.setTimestamp(index + 1, new Timestamp(element.getDateTime(index).getMillis())))
+                            .put(Schema.TypeName.BOOLEAN, (element, ps, index) -> ps.setBoolean(index + 1, element.getBoolean(index)))
+                            .put(Schema.TypeName.BYTES, (element, ps, index) -> ps.setBytes(index + 1, element.getBytes(index)))
+                            .build());
+
     public static void mapDataAccordingToSchema(Row element, PreparedStatement preparedStatement, Schema.FieldType fieldType, int index) {
         try {
             switch (fieldType.getTypeName()) {
-                case BYTE: // One-byte signed integer.
-                    preparedStatement.setByte(index + 1, element.getByte(index)); // index+1 is because preparedStatement indices start with 1
-                    break;
-                case INT16: // two-byte signed integer.
-                    preparedStatement.setInt(index + 1, element.getInt16(index));
-                    break;
-                case INT32: // four-byte signed integer.
-                    preparedStatement.setInt(index + 1, element.getInt32(index));
-                    break;
-                case INT64: // eight-byte signed integer.
-                    preparedStatement.setLong(index + 1, element.getInt64(index));
-                    break;
-                case DECIMAL: // Arbitrary-precision decimal number
-                    preparedStatement.setBigDecimal(index + 1, element.getDecimal(index));
-                    break;
-                case FLOAT:
-                    preparedStatement.setFloat(index + 1, element.getFloat(index));
-                    break;
-                case DOUBLE:
-                    preparedStatement.setDouble(index + 1, element.getDouble(index));
-                    break;
-                case STRING: // String.
-                    preparedStatement.setString(index + 1, element.getString(index));
-                    break;
-                case DATETIME: // Date and time.
-                    preparedStatement.setTimestamp(index + 1, new Timestamp(element.getDateTime(index).getMillis()));
-                    break;
-                case BOOLEAN: // Boolean.
-                    preparedStatement.setBoolean(index + 1, element.getBoolean(index));
-                    break;
-                case BYTES: // Byte array.
-                    preparedStatement.setBytes(index + 1, element.getBytes(index));
-                    break;
                 case ARRAY:
                     preparedStatement.setArray(index + 1,
                             preparedStatement.getConnection().createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(index).toArray()));
                     break;
-                case MAP:
-                    throw new RuntimeException("Map in schema is not supported while writing. Please provide statement and preparedStatementSetter");
-                case ROW: // The field is itself a nested row.
-                    throw new RuntimeException("Row in schema is not supported while writing. Please provide statement and preparedStatementSetter");
                 case LOGICAL_TYPE: {
                     String logicalTypeName = fieldType.getLogicalType().getIdentifier();
                     JDBCType jdbcType = JDBCType.valueOf(logicalTypeName);
@@ -73,8 +63,15 @@ public class JdbcUtil {
                         case TIMESTAMP_WITH_TIMEZONE:
                             preparedStatement.setTimestamp(index + 1, new Timestamp(element.getDateTime(index).getMillis()));
                             break;
-                        default:
-                            break;
+                        default: // nothing
+                    }
+                    break;
+                }
+                default: {
+                    if (PREPARED_STATEMENT_DATA_SETTER.containsKey(fieldType.getTypeName())) {
+                        PREPARED_STATEMENT_DATA_SETTER.get(fieldType.getTypeName()).set(element, preparedStatement, index);
+                    } else {
+                        throw new RuntimeException(fieldType.getTypeName().name() + " in schema is not supported while writing. Please provide statement and preparedStatementSetter");
                     }
                 }
             }
