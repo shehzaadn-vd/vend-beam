@@ -989,6 +989,7 @@ public class JdbcIO {
     public PDone expand(PCollection<T> input) {
 
       if (input.hasSchema() && !hasStatementAndSetter()) {
+        checkArgument(inner.getTable() != null, "table cannot be null if statement is not provided");
         Schema schema = input.getSchema();
         List<Schema.Field> fields = getFilteredFields(schema);
         inner = inner.withStatement(JdbcUtil.generateStatement(inner.getTable(), fields));
