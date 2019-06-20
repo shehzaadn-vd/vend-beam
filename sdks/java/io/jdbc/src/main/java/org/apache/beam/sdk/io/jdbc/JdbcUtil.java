@@ -28,7 +28,6 @@ public class JdbcUtil {
             return "?";
         }).collect(Collectors.joining(","));
 
-        //fixme: use %s
-        return "INSERT INTO "+tableName+" ("+fieldNames+") VALUES("+valuePlaceholder+")";
+        return String.format("INSERT INTO %s (%s) VALUES(%s)", tableName, fieldNames, valuePlaceholder);
     }
 }
