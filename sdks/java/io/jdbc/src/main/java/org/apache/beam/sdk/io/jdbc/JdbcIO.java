@@ -1011,15 +1011,21 @@ public class JdbcIO {
     private List<Schema.Field> getFilteredFields(Schema schema) {
       List<Schema.Field> fields = schema.getFields();
       Connection connection;
+      Schema tableSchema;
       try {
         connection = inner.getDataSourceProviderFn().apply(null).getConnection();
+        // Query table to get actual columns
+        ResultSet rs = connection.createStatement()
+                .executeQuery(String.format("SELECT * FROM %s", inner.getTable()));
+        tableSchema = SchemaUtil.toBeamSchema(rs.getMetaData());
       } catch (Exception e) {
-        throw new RuntimeException("Error while determining columns from table: " + inner.getTable());
+        throw new RuntimeException("Error while determining columns from table: " + inner.getTable(), e);
       }
-      List<String> databaseColumnList = getTableColumnList(connection);
-      fields = fields.stream().filter((field) -> {
-        return databaseColumnList.contains(field.getName().toLowerCase());
-      }).collect(Collectors.toList());
+      fields = fields.stream().filter((field) ->
+              tableSchema.getFields().stream().anyMatch((ele) ->
+                      ele.getName().toLowerCase().equals(field.getName().toLowerCase())
+                      && ele.getType().getTypeName().equals(field.getType().getTypeName())))
+              .collect(Collectors.toList());
       return fields;
     }
 

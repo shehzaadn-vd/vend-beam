@@ -508,7 +508,7 @@ public class JdbcIOTest implements Serializable {
     String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
     DatabaseTestHelper.createTable(dataSource, tableName);
     try {
-      ArrayList<Row> data = getRowsToWrite(rowsToAdd);
+      ArrayList<Row> data = getRowsToWrite(rowsToAdd, schema);
       pipeline.apply(Create.of(data)).setRowSchema(schema).apply(JdbcIO.<Row>write()
               .withDataSourceConfiguration(
                       JdbcIO.DataSourceConfiguration.create(
@@ -569,13 +569,7 @@ public class JdbcIOTest implements Serializable {
     }
   }
 
-  private static ArrayList<Row> getRowsToWrite(long rowsToAdd) {
-
-    Schema.Builder schemaBuilder = Schema.builder();
-    schemaBuilder.addField(Schema.Field.of("id", Schema.FieldType.INT32));
-    schemaBuilder.addField(Schema.Field.of("name", Schema.FieldType.STRING));
-    schemaBuilder.addField(Schema.Field.of("email", Schema.FieldType.STRING));
-    Schema schema = schemaBuilder.build();
+  private static ArrayList<Row> getRowsToWrite(long rowsToAdd, Schema schema) {
 
     ArrayList<Row> data = new ArrayList<>();
     for (int i = 0; i < rowsToAdd; i++) {
