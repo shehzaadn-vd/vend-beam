@@ -337,4 +337,32 @@ class SchemaUtil {
       return rowBuilder.build();
     }
   }
+
+  /**
+   * compares two fields. Does not compare nullability of field types
+   * @param a field 1
+   * @param b field 2
+   * @return TRUE if fields are equal. Otherwise FALSE
+   */
+  public static boolean schemaFieldComparator(Schema.Field a, Schema.Field b) {
+    if (!a.getName().toLowerCase().equals(b.getName().toLowerCase()))
+      return false;
+    return schemaFieldTypeComparator(a.getType(), b.getType());
+  }
+
+  /**
+   * compares two FieldType. Does not compare nullability
+   * @param a FieldType 1
+   * @param b FieldType 2
+   * @return TRUE if FieldType are equal. Otherwise FALSE
+   */
+  public static boolean schemaFieldTypeComparator(Schema.FieldType a, Schema.FieldType b) {
+    if (a.getTypeName().equals(b.getTypeName()) && !a.getTypeName().isLogicalType())
+      return true;
+    else if (a.getTypeName().isLogicalType())
+      return a.getLogicalType().getBaseType().equals(b);
+    else if (b.getTypeName().isLogicalType())
+      return b.getLogicalType().getBaseType().equals(a);
+    return false;
+  }
 }
