@@ -69,4 +69,12 @@ public class DatabaseTestHelper {
         options.getPostgresPort(),
         options.getPostgresDatabaseName());
   }
+
+  public static void createTableWithStatement(DataSource dataSource, String stmt) throws SQLException {
+    try (Connection connection = dataSource.getConnection()) {
+      try (Statement statement = connection.createStatement()) {
+        statement.execute(stmt);
+      }
+    }
+  }
 }

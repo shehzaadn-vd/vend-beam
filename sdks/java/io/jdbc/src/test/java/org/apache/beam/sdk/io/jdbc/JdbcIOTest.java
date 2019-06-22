@@ -23,13 +23,9 @@ import static org.junit.Assert.assertTrue;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.io.StringWriter;
+import java.math.BigDecimal;
 import java.net.InetAddress;
-import java.sql.Connection;
-import java.sql.JDBCType;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -42,9 +38,7 @@ import org.apache.beam.sdk.io.common.DatabaseTestHelper;
 import org.apache.beam.sdk.io.common.NetworkTestHelper;
 import org.apache.beam.sdk.io.common.TestRow;
 import org.apache.beam.sdk.schemas.Schema;
-import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.schemas.transforms.Select;
-import org.apache.beam.sdk.schemas.Schema;
 import org.apache.beam.sdk.testing.ExpectedLogs;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
@@ -55,9 +49,7 @@ import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.Row;
-import org.apache.beam.sdk.values.Row;
 import org.apache.beam.vendor.guava.v20_0.com.google.common.collect.ImmutableList;
-import org.apache.beam.sdk.values.Row;
 import org.apache.commons.dbcp2.PoolingDataSource;
 import org.apache.derby.drda.NetworkServerControl;
 import org.apache.derby.jdbc.ClientDataSource;
@@ -500,13 +492,36 @@ public class JdbcIOTest implements Serializable {
     final int rowsToAdd = 10;
 
     Schema.Builder schemaBuilder = Schema.builder();
-    schemaBuilder.addField(Schema.Field.of("id", Schema.FieldType.INT32));
-    schemaBuilder.addField(Schema.Field.of("name", Schema.FieldType.STRING));
-    schemaBuilder.addField(Schema.Field.of("email", Schema.FieldType.STRING));
+    schemaBuilder.addField(Schema.Field.of("column_boolean", Schema.FieldType.BOOLEAN));
+    schemaBuilder.addField(Schema.Field.of("column_string", Schema.FieldType.STRING));
+    schemaBuilder.addField(Schema.Field.of("column_int", Schema.FieldType.INT32));
+    schemaBuilder.addField(Schema.Field.of("column_long", Schema.FieldType.INT64));
+    schemaBuilder.addField(Schema.Field.of("column_float", Schema.FieldType.FLOAT));
+    schemaBuilder.addField(Schema.Field.of("column_double", Schema.FieldType.DOUBLE));
+    schemaBuilder.addField(Schema.Field.of("column_bigdecimal", Schema.FieldType.DECIMAL));
+    schemaBuilder.addField(Schema.Field.of("column_date", Schema.FieldType.DATETIME));
+    schemaBuilder.addField(Schema.Field.of("column_time", LogicalTypes.JDBC_TIME_TYPE));
+    schemaBuilder.addField(Schema.Field.of("column_timestamp", LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE));
+    schemaBuilder.addField(Schema.Field.of("column_short", Schema.FieldType.INT16));
     Schema schema = schemaBuilder.build();
 
     String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
-    DatabaseTestHelper.createTable(dataSource, tableName);
+    StringBuilder stmt = new StringBuilder("CREATE TABLE ");
+    stmt.append(tableName);
+    stmt.append(" (");
+    stmt.append("column_boolean       BOOLEAN,");             // boolean
+    stmt.append("column_string        VARCHAR(254),");        // String
+    stmt.append("column_int           INTEGER,");             // int
+    stmt.append("column_long          BIGINT,");              // long
+    stmt.append("column_float         FLOAT,");               // float
+    stmt.append("column_double        DOUBLE PRECISION,");    // double
+    stmt.append("column_bigdecimal    DECIMAL(13,0),");       // BigDecimal
+    stmt.append("column_date          DATE,");                // Date
+    stmt.append("column_time          TIME,");                // Time
+    stmt.append("column_timestamp     TIMESTAMP,");           // Timestamp
+    stmt.append("column_short         SMALLINT");             // short
+    stmt.append(" )");
+    DatabaseTestHelper.createTableWithStatement(dataSource, stmt.toString());
     try {
       ArrayList<Row> data = getRowsToWrite(rowsToAdd, schema);
       pipeline.apply(Create.of(data)).setRowSchema(schema).apply(JdbcIO.<Row>write()
@@ -583,6 +598,15 @@ public class JdbcIOTest implements Serializable {
     return data;
   }
 
+  private static ArrayList<RowWithSchema> getRowsWithSchemaToWrite(long rowsToAdd) {
+
+    ArrayList<RowWithSchema> data = new ArrayList<>();
+    for (int i = 0; i < rowsToAdd; i++) {
+      data.add(new RowWithSchema("Test", i));
+    }
+    return data;
+  }
+
   private static List<KV<String, Integer>> getKVsToWrite(long rowsToAdd) {
 
     List<KV<String, Integer>> data = new ArrayList<>();
@@ -599,6 +623,22 @@ public class JdbcIOTest implements Serializable {
       return 100;
     else if (fieldType.equals(Schema.FieldType.DOUBLE))
       return 1000.50;
+    else if (fieldType.equals(Schema.FieldType.BOOLEAN))
+      return Boolean.TRUE;
+    else if(fieldType.equals(Schema.FieldType.INT16))
+      return Short.MAX_VALUE;
+    else if(fieldType.equals(Schema.FieldType.INT64))
+      return Long.MAX_VALUE;
+    else if(fieldType.equals(Schema.FieldType.FLOAT))
+      return Float.MAX_VALUE;
+    else if(fieldType.equals(Schema.FieldType.DECIMAL))
+      return BigDecimal.ONE;
+    else if(fieldType.equals(Schema.FieldType.DATETIME))
+      return new Date(System.currentTimeMillis());
+    else if(fieldType.equals(LogicalTypes.JDBC_TIME_TYPE))
+      return new Time(System.currentTimeMillis());
+    else if(fieldType.equals(LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE))
+      return new Timestamp(System.currentTimeMillis());
     else
       return null;
   }
