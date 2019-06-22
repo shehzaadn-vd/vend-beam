@@ -552,32 +552,14 @@ public class JdbcIOTest implements Serializable {
   public void testWriteWithoutPreparedStatementAndNonRowType() throws Exception {
     final int rowsToAdd = 10;
 
-    Schema.Builder schemaBuilder = Schema.builder();
-    schemaBuilder.addField(Schema.Field.of("id", Schema.FieldType.INT32));
-    schemaBuilder.addField(Schema.Field.of("name", Schema.FieldType.STRING));
-    Schema schema = schemaBuilder.build();
-
     String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
-    DatabaseTestHelper.createTable(dataSource, tableName);
+    DatabaseTestHelper.createTableForRowWithSchema(dataSource, tableName);
     try {
-      List<KV<String, Integer>> data = getKVsToWrite(rowsToAdd);
+      List<RowWithSchema> data = getRowsWithSchemaToWrite(rowsToAdd);
 
       pipeline
-              .apply(Create.of(data).withSchema(schema, (KV<String, Integer> input) -> {
-                return schema.getFields().stream()
-                        .map(field -> {
-                          if ("id".equals(field.getName()))
-                            return input.getValue();
-                          else if ("name".equals(field.getName()))
-                            return input.getKey();
-                          else
-                            return "";
-                        })
-                        .collect(Row.toRow(schema));
-              }, (Row input) -> {
-                return KV.of(input.getString("name"), input.getInt32("id"));
-              }))
-              .apply(JdbcIO.<KV<String, Integer>>write()
+              .apply(Create.of(data))
+              .apply(JdbcIO.<RowWithSchema>write()
                       .withDataSourceConfiguration(
                               JdbcIO.DataSourceConfiguration.create(
                                       "org.apache.derby.jdbc.ClientDriver",
