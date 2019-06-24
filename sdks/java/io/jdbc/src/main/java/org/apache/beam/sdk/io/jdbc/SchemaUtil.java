@@ -361,9 +361,9 @@ class SchemaUtil {
       return !a.getTypeName().equals(Schema.TypeName.LOGICAL_TYPE)
               || compareSchemaFieldType(a.getLogicalType().getBaseType(), b.getLogicalType().getBaseType());
     else if (a.getTypeName().isLogicalType())
-      return a.getLogicalType().getBaseType().equals(b);
+      return a.getLogicalType().getBaseType().getTypeName().equals(b.getTypeName());
     else if (b.getTypeName().isLogicalType())
-      return b.getLogicalType().getBaseType().equals(a);
+      return b.getLogicalType().getBaseType().getTypeName().equals(a.getTypeName());
     return false;
   }
 }

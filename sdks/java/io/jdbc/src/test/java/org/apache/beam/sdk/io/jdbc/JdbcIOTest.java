@@ -17,27 +17,6 @@
  */
 package org.apache.beam.sdk.io.jdbc;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
-import java.io.PrintWriter;
-import java.io.Serializable;
-import java.io.StringWriter;
-import java.math.BigDecimal;
-import java.net.InetAddress;
-import java.sql.PreparedStatement;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.JDBCType;
-import java.sql.Statement;
-import java.sql.ResultSet;
-import java.sql.Date;
-import java.sql.Time;
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import javax.sql.DataSource;
 import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.coders.StringUtf8Coder;
@@ -74,6 +53,25 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.sql.DataSource;
+import java.io.PrintWriter;
+import java.io.Serializable;
+import java.io.StringWriter;
+import java.math.BigDecimal;
+import java.net.InetAddress;
+import java.sql.Connection;
+import java.sql.JDBCType;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /** Test on the JdbcIO. */
 @RunWith(JUnit4.class)
@@ -525,7 +523,7 @@ public class JdbcIOTest implements Serializable {
     stmt.append("column_string        VARCHAR(254),");        // String
     stmt.append("column_int           INTEGER,");             // int
     stmt.append("column_long          BIGINT,");              // long
-    stmt.append("column_float         FLOAT,");               // float
+    stmt.append("column_float         REAL,");               // float
     stmt.append("column_double        DOUBLE PRECISION,");    // double
     stmt.append("column_bigdecimal    DECIMAL(13,0),");       // BigDecimal
     stmt.append("column_date          DATE,");                // Date
