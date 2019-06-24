@@ -61,6 +61,9 @@ import org.apache.beam.vendor.guava.v20_0.com.google.common.collect.ImmutableLis
 import org.apache.commons.dbcp2.PoolingDataSource;
 import org.apache.derby.drda.NetworkServerControl;
 import org.apache.derby.jdbc.ClientDataSource;
+import org.joda.time.DateTime;
+import org.joda.time.LocalDate;
+import org.joda.time.chrono.ISOChronology;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -507,9 +510,10 @@ public class JdbcIOTest implements Serializable {
     schemaBuilder.addField(Schema.Field.of("column_float", Schema.FieldType.FLOAT));
     schemaBuilder.addField(Schema.Field.of("column_double", Schema.FieldType.DOUBLE));
     schemaBuilder.addField(Schema.Field.of("column_bigdecimal", Schema.FieldType.DECIMAL));
-    schemaBuilder.addField(Schema.Field.of("column_date", Schema.FieldType.DATETIME));
+    schemaBuilder.addField(Schema.Field.of("column_date", LogicalTypes.JDBC_DATE_TYPE));
     schemaBuilder.addField(Schema.Field.of("column_time", LogicalTypes.JDBC_TIME_TYPE));
-    schemaBuilder.addField(Schema.Field.of("column_timestamp", LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE));
+    schemaBuilder.addField(Schema.Field.of("column_timestamptz", LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE));
+    schemaBuilder.addField(Schema.Field.of("column_timestamp", Schema.FieldType.DATETIME));
     schemaBuilder.addField(Schema.Field.of("column_short", Schema.FieldType.INT16));
     Schema schema = schemaBuilder.build();
 
@@ -526,6 +530,7 @@ public class JdbcIOTest implements Serializable {
     stmt.append("column_bigdecimal    DECIMAL(13,0),");       // BigDecimal
     stmt.append("column_date          DATE,");                // Date
     stmt.append("column_time          TIME,");                // Time
+    stmt.append("column_timestamptz   TIMESTAMP,");           // Timestamp
     stmt.append("column_timestamp     TIMESTAMP,");           // Timestamp
     stmt.append("column_short         SMALLINT");             // short
     stmt.append(" )");
@@ -607,12 +612,13 @@ public class JdbcIOTest implements Serializable {
   }
 
   private static Object dummyFieldValue(Schema.FieldType fieldType) {
+    long epochMilli = 1558719710000L;
     if (fieldType.equals(Schema.FieldType.STRING))
       return "string value";
     else if (fieldType.equals(Schema.FieldType.INT32))
       return 100;
     else if (fieldType.equals(Schema.FieldType.DOUBLE))
-      return 1000.50;
+      return 20.5D;
     else if (fieldType.equals(Schema.FieldType.BOOLEAN))
       return Boolean.TRUE;
     else if(fieldType.equals(Schema.FieldType.INT16))
@@ -620,15 +626,17 @@ public class JdbcIOTest implements Serializable {
     else if(fieldType.equals(Schema.FieldType.INT64))
       return Long.MAX_VALUE;
     else if(fieldType.equals(Schema.FieldType.FLOAT))
-      return Float.MAX_VALUE;
+      return 15.5F;
     else if(fieldType.equals(Schema.FieldType.DECIMAL))
       return BigDecimal.ONE;
-    else if(fieldType.equals(Schema.FieldType.DATETIME))
-      return new Date(System.currentTimeMillis());
+    else if(fieldType.equals(LogicalTypes.JDBC_DATE_TYPE))
+      return new DateTime(epochMilli, ISOChronology.getInstanceUTC()).withTimeAtStartOfDay();
     else if(fieldType.equals(LogicalTypes.JDBC_TIME_TYPE))
-      return new Time(System.currentTimeMillis());
+      return new DateTime(epochMilli, ISOChronology.getInstanceUTC()).withDate(new LocalDate(0L));
     else if(fieldType.equals(LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE))
-      return new Timestamp(System.currentTimeMillis());
+      return new DateTime(epochMilli, ISOChronology.getInstanceUTC());
+    else if(fieldType.equals(Schema.FieldType.DATETIME))
+      return new DateTime(epochMilli, ISOChronology.getInstanceUTC());
     else
       return null;
   }
