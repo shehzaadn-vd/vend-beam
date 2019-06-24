@@ -344,10 +344,10 @@ class SchemaUtil {
    * @param b field 2
    * @return TRUE if fields are equal. Otherwise FALSE
    */
-  public static boolean schemaFieldComparator(Schema.Field a, Schema.Field b) {
+  public static boolean compareSchemaField(Schema.Field a, Schema.Field b) {
     if (!a.getName().toLowerCase().equals(b.getName().toLowerCase()))
       return false;
-    return schemaFieldTypeComparator(a.getType(), b.getType());
+    return compareSchemaFieldType(a.getType(), b.getType());
   }
 
   /**
@@ -356,7 +356,7 @@ class SchemaUtil {
    * @param b FieldType 2
    * @return TRUE if FieldType are equal. Otherwise FALSE
    */
-  public static boolean schemaFieldTypeComparator(Schema.FieldType a, Schema.FieldType b) {
+  public static boolean compareSchemaFieldType(Schema.FieldType a, Schema.FieldType b) {
     if (a.getTypeName().equals(b.getTypeName()) && !a.getTypeName().isLogicalType())
       return true;
     else if (a.getTypeName().isLogicalType())
