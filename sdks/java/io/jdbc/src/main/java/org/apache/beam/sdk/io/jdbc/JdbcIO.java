@@ -23,13 +23,9 @@ import com.google.auto.value.AutoValue;
 import java.io.IOException;
 import java.io.Serializable;
 import java.sql.Connection;
-import java.sql.Date;
-import java.sql.JDBCType;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Time;
-import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
@@ -1017,7 +1013,7 @@ public class JdbcIO {
       }
       fields = fields.stream().filter((field) ->
               tableSchema.getFields().stream().anyMatch((ele) ->
-                      SchemaUtil.schemaFieldComparator(field, ele)))
+                      SchemaUtil.compareSchemaField(field, ele)))
               .collect(Collectors.toList());
       return fields;
     }
