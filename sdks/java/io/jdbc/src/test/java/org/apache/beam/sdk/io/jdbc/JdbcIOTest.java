@@ -515,7 +515,7 @@ public class JdbcIOTest implements Serializable {
     schemaBuilder.addField(Schema.Field.of("column_short", Schema.FieldType.INT16));
     Schema schema = schemaBuilder.build();
 
-    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
+    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE_PS");
     StringBuilder stmt = new StringBuilder("CREATE TABLE ");
     stmt.append(tableName);
     stmt.append(" (");
@@ -555,7 +555,7 @@ public class JdbcIOTest implements Serializable {
   public void testWriteWithoutPreparedStatementAndNonRowType() throws Exception {
     final int rowsToAdd = 10;
 
-    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
+    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE_PS");
     DatabaseTestHelper.createTableForRowWithSchema(dataSource, tableName);
     try {
       List<RowWithSchema> data = getRowsWithSchemaToWrite(rowsToAdd);
