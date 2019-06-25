@@ -1000,21 +1000,28 @@ public class JdbcIO {
 
     private List<Schema.Field> getFilteredFields(Schema schema) {
       List<Schema.Field> fields = schema.getFields();
-      Connection connection;
       Schema tableSchema;
-      try {
-        connection = inner.getDataSourceProviderFn().apply(null).getConnection();
-        // Query table to get actual columns
-        ResultSet rs = connection.createStatement()
-                .executeQuery(String.format("SELECT * FROM %s", inner.getTable()));
+
+      try (Connection connection = inner.getDataSourceProviderFn().apply(null).getConnection();
+           //Query table to get actual columns
+           ResultSet rs = connection.createStatement()
+                   .executeQuery(String.format("SELECT * FROM %s where 1!=1", inner.getTable()))) {
         tableSchema = SchemaUtil.toBeamSchema(rs.getMetaData());
-      } catch (Exception e) {
+      } catch (SQLException e) {
         throw new RuntimeException("Error while determining columns from table: " + inner.getTable(), e);
       }
+
+      if (tableSchema.getFieldCount() != schema.getFieldCount())
+        throw new RuntimeException("Provided schema doesn't match with database schema.");
+
       fields = fields.stream().filter((field) ->
               tableSchema.getFields().stream().anyMatch((ele) ->
                       SchemaUtil.compareSchemaField(field, ele)))
               .collect(Collectors.toList());
+
+      if (fields.size() != schema.getFieldCount())
+        throw new RuntimeException("Provided schema doesn't match with database schema.");
+
       return fields;
     }
 
