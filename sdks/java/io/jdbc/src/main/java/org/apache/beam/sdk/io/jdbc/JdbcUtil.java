@@ -47,41 +47,41 @@ public class JdbcUtil {
 
     private static Map<Schema.TypeName, JdbcIO.PreparedStatementSetCaller> TYPE_NAME_PS_SET_CALLER_MAP = new EnumMap<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>(
             ImmutableMap.<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>builder()
-                    .put(Schema.TypeName.BYTE, (element, ps, i) -> ps.setByte(i + 1, element.getByte(i)))
-                    .put(Schema.TypeName.INT16, (element, ps, i) -> ps.setInt(i + 1, element.getInt16(i)))
-                    .put(Schema.TypeName.INT64, (element, ps, i) -> ps.setLong(i + 1, element.getInt64(i)))
-                    .put(Schema.TypeName.DECIMAL, (element, ps, i) -> ps.setBigDecimal(i + 1, element.getDecimal(i)))
-                    .put(Schema.TypeName.FLOAT, (element, ps, i) -> ps.setFloat(i + 1, element.getFloat(i)))
-                    .put(Schema.TypeName.DOUBLE, (element, ps, i) -> ps.setDouble(i + 1, element.getDouble(i)))
-                    .put(Schema.TypeName.DATETIME, (element, ps, i) -> ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(i).getMillis())))
-                    .put(Schema.TypeName.BOOLEAN, (element, ps, i) -> ps.setBoolean(i + 1, element.getBoolean(i)))
-                    .put(Schema.TypeName.BYTES, (element, ps, i) -> ps.setBytes(i + 1, element.getBytes(i)))
-                    .put(Schema.TypeName.INT32, (element, ps, i) -> ps.setInt(i + 1, element.getInt32(i)))
-                    .put(Schema.TypeName.STRING, (element, ps, i) -> ps.setString(i + 1, element.getString(i)))
+                    .put(Schema.TypeName.BYTE, (element, ps, i, fieldName) -> ps.setByte(i + 1, element.getByte(fieldName)))
+                    .put(Schema.TypeName.INT16, (element, ps, i, fieldName) -> ps.setInt(i + 1, element.getInt16(fieldName)))
+                    .put(Schema.TypeName.INT64, (element, ps, i, fieldName) -> ps.setLong(i + 1, element.getInt64(fieldName)))
+                    .put(Schema.TypeName.DECIMAL, (element, ps, i, fieldName) -> ps.setBigDecimal(i + 1, element.getDecimal(fieldName)))
+                    .put(Schema.TypeName.FLOAT, (element, ps, i, fieldName) -> ps.setFloat(i + 1, element.getFloat(fieldName)))
+                    .put(Schema.TypeName.DOUBLE, (element, ps, i, fieldName) -> ps.setDouble(i + 1, element.getDouble(fieldName)))
+                    .put(Schema.TypeName.DATETIME, (element, ps, i, fieldName) -> ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldName).getMillis())))
+                    .put(Schema.TypeName.BOOLEAN, (element, ps, i, fieldName) -> ps.setBoolean(i + 1, element.getBoolean(fieldName)))
+                    .put(Schema.TypeName.BYTES, (element, ps, i, fieldName) -> ps.setBytes(i + 1, element.getBytes(fieldName)))
+                    .put(Schema.TypeName.INT32, (element, ps, i, fieldName) -> ps.setInt(i + 1, element.getInt32(fieldName)))
+                    .put(Schema.TypeName.STRING, (element, ps, i, fieldName) -> ps.setString(i + 1, element.getString(fieldName)))
                     .build());
 
     public static JdbcIO.PreparedStatementSetCaller getPreparedStatementSetCaller(Schema.FieldType fieldType) {
         switch (fieldType.getTypeName()) {
             case ARRAY:
-                return (element, ps, i) -> {
+                return (element, ps, i, fieldName) -> {
                     ps.setArray(i + 1, ps.getConnection()
-                            .createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(i).toArray()));
+                            .createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(fieldName).toArray()));
                 };
             case LOGICAL_TYPE: {
                 String logicalTypeName = fieldType.getLogicalType().getIdentifier();
                 JDBCType jdbcType = JDBCType.valueOf(logicalTypeName);
                 switch (jdbcType) {
                     case DATE:
-                        return (element, ps, i) -> {
-                            ps.setDate(i + 1, new Date(element.getDateTime(i).getMillis()));
+                        return (element, ps, i, fieldName) -> {
+                            ps.setDate(i + 1, new Date(element.getDateTime(fieldName).getMillis()));
                         };
                     case TIME:
-                        return (element, ps, i) -> {
-                            ps.setTime(i + 1, new Time(element.getDateTime(i).getMillis()));
+                        return (element, ps, i, fieldName) -> {
+                            ps.setTime(i + 1, new Time(element.getDateTime(fieldName).getMillis()));
                         };
                     case TIMESTAMP_WITH_TIMEZONE:
-                        return (element, ps, i) -> {
-                            ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(i).getMillis()));
+                        return (element, ps, i, fieldName) -> {
+                            ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldName).getMillis()));
                         };
                     default:
                         return getPreparedStatementSetCaller(fieldType.getLogicalType().getBaseType());
