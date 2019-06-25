@@ -1003,16 +1003,15 @@ public class JdbcIO {
       Schema tableSchema;
 
       try (Connection connection = inner.getDataSourceProviderFn().apply(null).getConnection();
-           //Query table to get actual columns
-           ResultSet rs = connection.createStatement()
-                   .executeQuery(String.format("SELECT * FROM %s where 1!=1", inner.getTable()))) {
-        tableSchema = SchemaUtil.toBeamSchema(rs.getMetaData());
+           PreparedStatement statement =
+                   connection.prepareStatement((String.format("SELECT * FROM %s", inner.getTable())))) {
+        tableSchema = SchemaUtil.toBeamSchema(statement.getMetaData());
       } catch (SQLException e) {
         throw new RuntimeException("Error while determining columns from table: " + inner.getTable(), e);
       }
 
-      if (tableSchema.getFieldCount() != schema.getFieldCount())
-        throw new RuntimeException("Provided schema doesn't match with database schema.");
+      if (tableSchema.getFieldCount() <= schema.getFieldCount())
+        throw new RuntimeException("Input schema has more fields than actual table.");
 
       fields = fields.stream().filter((field) ->
               tableSchema.getFields().stream().anyMatch((ele) ->
