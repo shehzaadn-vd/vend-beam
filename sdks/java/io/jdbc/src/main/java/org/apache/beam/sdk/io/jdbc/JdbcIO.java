@@ -1048,7 +1048,7 @@ public class JdbcIO {
         Row row = (element instanceof Row) ? (Row) element : toRowFn.apply(element);
         IntStream.range(0, fields.size()).forEach((index) -> {
           try {
-            preparedStatementFieldSetterList.get(index).set(row, preparedStatement, index);
+            preparedStatementFieldSetterList.get(index).set(row, preparedStatement, index, fields.get(index).getName());
           }
           catch (SQLException | NullPointerException e) {
             throw new RuntimeException("Error while setting data to preparedStatement", e);
@@ -1064,7 +1064,7 @@ public class JdbcIO {
    */
   @FunctionalInterface
   interface PreparedStatementSetCaller extends Serializable {
-    void set(Row element, PreparedStatement preparedStatement, int index) throws SQLException;
+    void set(Row element, PreparedStatement preparedStatement, int index, String fieldName) throws SQLException;
   }
 
   /** A {@link PTransform} to write to a JDBC datasource. */
