@@ -17,6 +17,7 @@
  */
 package org.apache.beam.sdk.io.jdbc;
 
+import static org.apache.beam.sdk.io.jdbc.SchemaUtil.checkNullabilityForFields;
 import static org.apache.beam.vendor.guava.v20_0.com.google.common.base.Preconditions.checkArgument;
 
 import com.google.auto.value.AutoValue;
@@ -1010,8 +1011,17 @@ public class JdbcIO {
         throw new RuntimeException("Error while determining columns from table: " + inner.getTable(), e);
       }
 
-      if (tableSchema.getFieldCount() <= schema.getFieldCount())
+      if (tableSchema.getFieldCount() < schema.getFieldCount())
         throw new RuntimeException("Input schema has more fields than actual table.");
+
+      //filter out missing fields from output table
+      List<Schema.Field> missingFields = tableSchema.getFields().stream()
+              .filter(line -> schema.getFields().stream().noneMatch(s -> s.getName().equalsIgnoreCase(line.getName())))
+              .collect(Collectors.toList());
+
+      //allow insert only if missing fields are nullable
+      if(checkNullabilityForFields(missingFields))
+        throw new RuntimeException("Non nullable fields are not allowed without schema.");
 
       fields = fields.stream().filter((field) ->
               tableSchema.getFields().stream().anyMatch((ele) ->

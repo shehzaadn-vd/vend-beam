@@ -347,7 +347,18 @@ class SchemaUtil {
   public static boolean compareSchemaField(Schema.Field a, Schema.Field b) {
     if (!a.getName().toLowerCase().equals(b.getName().toLowerCase()))
       return false;
+
     return compareSchemaFieldType(a.getType(), b.getType());
+  }
+
+  /**
+   * checks nullability for fields
+   * @param fields
+   * @return TRUE if any field is not nullable
+   */
+  public static boolean checkNullabilityForFields(List<Schema.Field> fields) {
+    return fields.stream()
+            .anyMatch(field -> !field.getType().getNullable());
   }
 
   /**
