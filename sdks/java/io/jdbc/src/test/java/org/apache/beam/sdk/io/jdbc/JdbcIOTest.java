@@ -559,7 +559,7 @@ public class JdbcIOTest implements Serializable {
 
     Schema.Builder schemaBuilder = Schema.builder();
     schemaBuilder.addField(Schema.Field.of("column_boolean", Schema.FieldType.BOOLEAN));
-    schemaBuilder.addField(Schema.Field.of("column_string", Schema.FieldType.STRING).withNullable(false));
+    schemaBuilder.addField(Schema.Field.of("column_string", Schema.FieldType.STRING));
     Schema schema = schemaBuilder.build();
 
     String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
