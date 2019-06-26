@@ -292,6 +292,12 @@ public class Schema implements Serializable {
     IGNORE
   };
 
+  /** Control whether case of field name is included in equivalence check. */
+  public enum EquivalenceCasePolicy {
+    CASE_SENSITIVE,
+    CASE_INSENSITIVE
+  };
+
   /** Returns true if two Schemas have the same fields, but possibly in different orders. */
   public boolean equivalent(Schema other) {
     return equivalent(other, EquivalenceNullablePolicy.SAME);
@@ -302,7 +308,7 @@ public class Schema implements Serializable {
     return equivalent(other, EquivalenceNullablePolicy.WEAKEN);
   }
 
-  /** Returns true if this Schema can be assigned to another Schema, igmoring nullable. * */
+  /** Returns true if this Schema can be assigned to another Schema, ignoring nullable. * */
   public boolean assignableToIgnoreNullable(Schema other) {
     return equivalent(other, EquivalenceNullablePolicy.IGNORE);
   }

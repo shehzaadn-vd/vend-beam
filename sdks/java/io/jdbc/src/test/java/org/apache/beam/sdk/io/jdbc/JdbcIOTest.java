@@ -52,6 +52,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,18 +62,30 @@ import java.io.Serializable;
 import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.net.InetAddress;
+import java.nio.charset.Charset;
+import java.sql.Array;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.JDBCType;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.isA;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /** Test on the JdbcIO. */
 @RunWith(JUnit4.class)
@@ -592,7 +605,7 @@ public class JdbcIOTest implements Serializable {
   public void testWriteWithoutPreparedStatementAndNonRowType() throws Exception {
     final int rowsToAdd = 10;
 
-    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE_PS");
+    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE_PS_NON_ROW");
     DatabaseTestHelper.createTableForRowWithSchema(dataSource, tableName);
     try {
       List<RowWithSchema> data = getRowsWithSchemaToWrite(rowsToAdd);
@@ -612,6 +625,93 @@ public class JdbcIOTest implements Serializable {
     } finally {
       DatabaseTestHelper.deleteTable(dataSource, tableName);
     }
+  }
+
+  @Test
+  public void testGetPreparedStatementSetCaller() throws Exception {
+
+    Schema schema = Schema.builder()
+            .addField("bigint_col", Schema.FieldType.INT64)
+            .addField("binary_col", Schema.FieldType.BYTES)
+            .addField("bit_col", Schema.FieldType.BOOLEAN)
+            .addField("char_col", Schema.FieldType.STRING)
+            .addField("decimal_col", Schema.FieldType.DECIMAL)
+            .addField("double_col", Schema.FieldType.DOUBLE)
+            .addField("float_col", Schema.FieldType.FLOAT)
+            .addField("integer_col", Schema.FieldType.INT32)
+            .addField("datetime_col", Schema.FieldType.DATETIME)
+            .addField("int16_col", Schema.FieldType.INT16)
+            .addField("byte_col", Schema.FieldType.BYTE)
+            .build();
+    Row row = Row.withSchema(schema).addValues(
+            42L,
+            "binary".getBytes(Charset.forName("UTF-8")),
+            true,
+            "char",
+            BigDecimal.valueOf(25L),
+            20.5D,
+            15.5F,
+            10,
+            new DateTime(),
+            (short) 5,
+            Byte.parseByte("1", 2))
+            .build();
+
+    PreparedStatement psMocked = mock(PreparedStatement.class);
+
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT64).set(row, psMocked, 0);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTES).set(row, psMocked, 1);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BOOLEAN).set(row, psMocked, 2);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.STRING).set(row, psMocked, 3);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DECIMAL).set(row, psMocked, 4);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DOUBLE).set(row, psMocked, 5);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.FLOAT).set(row, psMocked, 6);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT32).set(row, psMocked, 7);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DATETIME).set(row, psMocked, 8);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT16).set(row, psMocked, 9);
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTE).set(row, psMocked, 10);
+
+    verify(psMocked, times(1)).setLong(1, 42L);
+    verify(psMocked, times(1)).setBytes(2, "binary".getBytes(Charset.forName("UTF-8")));
+    verify(psMocked, times(1)).setBoolean(3, true);
+    verify(psMocked, times(1)).setString(4, "char");
+    verify(psMocked, times(1)).setBigDecimal(5, BigDecimal.valueOf(25L));
+    verify(psMocked, times(1)).setDouble(6, 20.5D);
+    verify(psMocked, times(1)).setFloat(7, 15.5F);
+    verify(psMocked, times(1)).setInt(8, 10);
+    verify(psMocked, times(1)).setTimestamp(9, new Timestamp(row.getDateTime("datetime_col").getMillis()));
+    verify(psMocked, times(1)).setInt(10, (short) 5);
+    verify(psMocked, times(1)).setByte(11, Byte.parseByte("1", 2));
+
+  }
+
+  @Test
+  public void testGetPreparedStatementSetCallerForLogicalTypes() throws Exception {
+
+    Schema schema = Schema.builder()
+            .addField("logical_date_col", LogicalTypes.JDBC_DATE_TYPE)
+            .addField("logical_time_col", LogicalTypes.JDBC_TIME_TYPE)
+            .addField("logical_time_with_tz_col", LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE)
+            .build();
+
+    long epochMilli = 1558719710000L;
+    DateTime dateTime = new DateTime(epochMilli, ISOChronology.getInstanceUTC());
+
+    Row row = Row.withSchema(schema).addValues(
+            dateTime.withTimeAtStartOfDay(),
+            dateTime.withDate(new LocalDate(0L)),
+            dateTime)
+            .build();
+
+    PreparedStatement psMocked = mock(PreparedStatement.class);
+
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_DATE_TYPE).set(row, psMocked, 0);
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIME_TYPE).set(row, psMocked, 1);
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE).set(row, psMocked, 2);
+
+    verify(psMocked, times(1)).setDate(1, new Date(row.getDateTime(0).getMillis()));
+    verify(psMocked, times(1)).setTime(2, new Time(row.getDateTime(1).getMillis()));
+    verify(psMocked, times(1)).setTimestamp(3, new Timestamp(row.getDateTime(2).getMillis()));
   }
 
   private static ArrayList<Row> getRowsToWrite(long rowsToAdd, Schema schema) {
