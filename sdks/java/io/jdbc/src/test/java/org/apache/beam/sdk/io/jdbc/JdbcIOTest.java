@@ -49,6 +49,7 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.slf4j.Logger;
@@ -90,6 +91,8 @@ public class JdbcIOTest implements Serializable {
   @Rule public final transient TestPipeline pipeline = TestPipeline.create();
 
   @Rule public final transient ExpectedLogs expectedLogs = ExpectedLogs.none(JdbcIO.class);
+
+  @Rule public transient ExpectedException thrown = ExpectedException.none();
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -550,6 +553,40 @@ public class JdbcIOTest implements Serializable {
     }
   }
 
+  @Test
+  public void testWriteWithoutPsWithNonNullableTableField() throws Exception {
+    final int rowsToAdd = 10;
+
+    Schema.Builder schemaBuilder = Schema.builder();
+    schemaBuilder.addField(Schema.Field.of("column_boolean", Schema.FieldType.BOOLEAN));
+    schemaBuilder.addField(Schema.Field.of("column_string", Schema.FieldType.STRING).withNullable(false));
+    Schema schema = schemaBuilder.build();
+
+    String tableName = DatabaseTestHelper.getTestTableName("UT_WRITE");
+    StringBuilder stmt = new StringBuilder("CREATE TABLE ");
+    stmt.append(tableName);
+    stmt.append(" (");
+    stmt.append("column_boolean       BOOLEAN,");
+    stmt.append("column_int           INTEGER NOT NULL");
+    stmt.append(" )");
+    DatabaseTestHelper.createTableWithStatement(dataSource, stmt.toString());
+    try {
+      ArrayList<Row> data = getRowsToWrite(rowsToAdd, schema);
+      pipeline.apply(Create.of(data)).setRowSchema(schema).apply(JdbcIO.<Row>write()
+              .withDataSourceConfiguration(
+                      JdbcIO.DataSourceConfiguration.create(
+                              "org.apache.derby.jdbc.ClientDriver",
+                              "jdbc:derby://localhost:" + port + "/target/beam"))
+              .withBatchSize(10L)
+              .withTable(tableName)
+      );
+      pipeline.run();
+    } finally {
+      DatabaseTestHelper.deleteTable(dataSource, tableName);
+      thrown.expect(RuntimeException.class);
+    }
+  }
+
 
   @Test
   public void testWriteWithoutPreparedStatementAndNonRowType() throws Exception {
@@ -596,15 +633,6 @@ public class JdbcIOTest implements Serializable {
     ArrayList<RowWithSchema> data = new ArrayList<>();
     for (int i = 0; i < rowsToAdd; i++) {
       data.add(new RowWithSchema("Test", i));
-    }
-    return data;
-  }
-
-  private static List<KV<String, Integer>> getKVsToWrite(long rowsToAdd) {
-
-    List<KV<String, Integer>> data = new ArrayList<>();
-    for (int i = 0; i < rowsToAdd; i++) {
-      data.add(KV.of("string" + i, i));
     }
     return data;
   }
