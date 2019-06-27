@@ -81,11 +81,14 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyListOf;
+import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.isA;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /** Test on the JdbcIO. */
 @RunWith(JUnit4.class)
@@ -712,6 +715,33 @@ public class JdbcIOTest implements Serializable {
     verify(psMocked, times(1)).setDate(1, new Date(row.getDateTime(0).getMillis()));
     verify(psMocked, times(1)).setTime(2, new Time(row.getDateTime(1).getMillis()));
     verify(psMocked, times(1)).setTimestamp(3, new Timestamp(row.getDateTime(2).getMillis()));
+  }
+
+
+  @Test
+  public void testGetPreparedStatementSetCallerForArray() throws Exception {
+
+    Schema schema = Schema.builder()
+            .addField("string_array_col", Schema.FieldType.array(Schema.FieldType.STRING))
+            .build();
+
+    List<String> stringList = Arrays.asList("string 1", "string 2");
+
+    Row row = Row
+            .withSchema(schema)
+            .addValues(stringList)
+            .build();
+
+    PreparedStatement psMocked = mock(PreparedStatement.class);
+    Connection connectionMocked = mock(Connection.class);
+    Array arrayMocked = mock(Array.class);
+
+    when(psMocked.getConnection()).thenReturn(connectionMocked);
+    when(connectionMocked.createArrayOf(anyString(), any())).thenReturn(arrayMocked);
+
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.array(Schema.FieldType.STRING)).set(row, psMocked, 0, schema.getField(0).getName());
+
+    verify(psMocked, times(1)).setArray(1, arrayMocked);
   }
 
   private static ArrayList<Row> getRowsToWrite(long rowsToAdd, Schema schema) {
