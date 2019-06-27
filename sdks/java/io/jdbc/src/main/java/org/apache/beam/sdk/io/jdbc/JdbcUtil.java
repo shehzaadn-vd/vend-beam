@@ -47,41 +47,41 @@ public class JdbcUtil {
 
     private static Map<Schema.TypeName, JdbcIO.PreparedStatementSetCaller> TYPE_NAME_PS_SET_CALLER_MAP = new EnumMap<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>(
             ImmutableMap.<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>builder()
-                    .put(Schema.TypeName.BYTE, (element, ps, i, fieldName) -> ps.setByte(i + 1, element.getByte(fieldName)))
-                    .put(Schema.TypeName.INT16, (element, ps, i, fieldName) -> ps.setInt(i + 1, element.getInt16(fieldName)))
-                    .put(Schema.TypeName.INT64, (element, ps, i, fieldName) -> ps.setLong(i + 1, element.getInt64(fieldName)))
-                    .put(Schema.TypeName.DECIMAL, (element, ps, i, fieldName) -> ps.setBigDecimal(i + 1, element.getDecimal(fieldName)))
-                    .put(Schema.TypeName.FLOAT, (element, ps, i, fieldName) -> ps.setFloat(i + 1, element.getFloat(fieldName)))
-                    .put(Schema.TypeName.DOUBLE, (element, ps, i, fieldName) -> ps.setDouble(i + 1, element.getDouble(fieldName)))
-                    .put(Schema.TypeName.DATETIME, (element, ps, i, fieldName) -> ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldName).getMillis())))
-                    .put(Schema.TypeName.BOOLEAN, (element, ps, i, fieldName) -> ps.setBoolean(i + 1, element.getBoolean(fieldName)))
-                    .put(Schema.TypeName.BYTES, (element, ps, i, fieldName) -> ps.setBytes(i + 1, element.getBytes(fieldName)))
-                    .put(Schema.TypeName.INT32, (element, ps, i, fieldName) -> ps.setInt(i + 1, element.getInt32(fieldName)))
-                    .put(Schema.TypeName.STRING, (element, ps, i, fieldName) -> ps.setString(i + 1, element.getString(fieldName)))
+                    .put(Schema.TypeName.BYTE, (element, ps, i, fieldWithIndex) -> ps.setByte(i + 1, element.getByte(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.INT16, (element, ps, i, fieldWithIndex) -> ps.setInt(i + 1, element.getInt16(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.INT64, (element, ps, i, fieldWithIndex) -> ps.setLong(i + 1, element.getInt64(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.DECIMAL, (element, ps, i, fieldWithIndex) -> ps.setBigDecimal(i + 1, element.getDecimal(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.FLOAT, (element, ps, i, fieldWithIndex) -> ps.setFloat(i + 1, element.getFloat(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.DOUBLE, (element, ps, i, fieldWithIndex) -> ps.setDouble(i + 1, element.getDouble(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.DATETIME, (element, ps, i, fieldWithIndex) -> ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldWithIndex.getIndex()).getMillis())))
+                    .put(Schema.TypeName.BOOLEAN, (element, ps, i, fieldWithIndex) -> ps.setBoolean(i + 1, element.getBoolean(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.BYTES, createBytesCaller())
+                    .put(Schema.TypeName.INT32, (element, ps, i, fieldWithIndex) -> ps.setInt(i + 1, element.getInt32(fieldWithIndex.getIndex())))
+                    .put(Schema.TypeName.STRING, createStringCaller())
                     .build());
 
     public static JdbcIO.PreparedStatementSetCaller getPreparedStatementSetCaller(Schema.FieldType fieldType) {
         switch (fieldType.getTypeName()) {
             case ARRAY:
-                return (element, ps, i, fieldName) -> {
+                return (element, ps, i, fieldWithIndex) -> {
                     ps.setArray(i + 1, ps.getConnection()
-                            .createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(fieldName).toArray()));
+                            .createArrayOf(fieldType.getCollectionElementType().getTypeName().name(), element.getArray(fieldWithIndex.getIndex()).toArray()));
                 };
             case LOGICAL_TYPE: {
                 String logicalTypeName = fieldType.getLogicalType().getIdentifier();
                 JDBCType jdbcType = JDBCType.valueOf(logicalTypeName);
                 switch (jdbcType) {
                     case DATE:
-                        return (element, ps, i, fieldName) -> {
-                            ps.setDate(i + 1, new Date(element.getDateTime(fieldName).getMillis()));
+                        return (element, ps, i, fieldWithIndex) -> {
+                            ps.setDate(i + 1, new Date(element.getDateTime(fieldWithIndex.getIndex()).getMillis()));
                         };
                     case TIME:
-                        return (element, ps, i, fieldName) -> {
-                            ps.setTime(i + 1, new Time(element.getDateTime(fieldName).getMillis()));
+                        return (element, ps, i, fieldWithIndex) -> {
+                            ps.setTime(i + 1, new Time(element.getDateTime(fieldWithIndex.getIndex()).getMillis()));
                         };
                     case TIMESTAMP_WITH_TIMEZONE:
-                        return (element, ps, i, fieldName) -> {
-                            ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldName).getMillis()));
+                        return (element, ps, i, fieldWithIndex) -> {
+                            ps.setTimestamp(i + 1, new Timestamp(element.getDateTime(fieldWithIndex.getIndex()).getMillis()));
                         };
                     default:
                         return getPreparedStatementSetCaller(fieldType.getLogicalType().getBaseType());
@@ -97,4 +97,23 @@ public class JdbcUtil {
         }
     }
 
+    private static JdbcIO.PreparedStatementSetCaller createBytesCaller() {
+        return (element, ps, i, fieldWithIndex) -> {
+            validateLogicalTypeLength(fieldWithIndex.getField(), element.getBytes(fieldWithIndex.getIndex()).length);
+            ps.setBytes(i + 1, element.getBytes(fieldWithIndex.getIndex()));
+        };
+    }
+
+    private static JdbcIO.PreparedStatementSetCaller createStringCaller() {
+        return (element, ps, i, fieldWithIndex) -> {
+            validateLogicalTypeLength(fieldWithIndex.getField(), element.getString(fieldWithIndex.getIndex()).length());
+            ps.setString(i + 1, element.getString(fieldWithIndex.getIndex()));
+        };
+    }
+
+    private static void validateLogicalTypeLength(Schema.Field field, Integer length) {
+        if (field.getType().getTypeName().isLogicalType()
+                && length >= Integer.valueOf(field.getType().getLogicalType().getArgument()))
+            throw new RuntimeException(String.format("Length of Schema.Field[%s] data exceeds database column capacity", field.getName()));
+    }
 }

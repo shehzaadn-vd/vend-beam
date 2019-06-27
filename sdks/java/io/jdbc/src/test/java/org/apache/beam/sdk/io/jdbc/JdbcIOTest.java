@@ -570,6 +570,29 @@ public class JdbcIOTest implements Serializable {
   }
 
   @Test
+  public void testWriteWithoutPreparedStatementWithReadRows() throws Exception {
+    SerializableFunction<Void, DataSource> dataSourceProvider = ignored -> dataSource;
+    PCollection<Row> rows =
+            pipeline.apply(
+                    JdbcIO.readRows()
+                            .withDataSourceProviderFn(dataSourceProvider)
+                            .withQuery(String.format("select name,id from %s where name = ?", readTableName))
+                            .withStatementPreparator(
+                                    preparedStatement ->
+                                            preparedStatement.setString(1, TestRow.getNameForSeed(1))));
+
+    rows.apply(JdbcIO.<Row>write()
+            .withDataSourceConfiguration(
+                    JdbcIO.DataSourceConfiguration.create(
+                            "org.apache.derby.jdbc.ClientDriver",
+                            "jdbc:derby://localhost:" + port + "/target/beam"))
+            .withBatchSize(10L)
+            .withTable(readTableName)
+    );
+    pipeline.run();
+  }
+
+  @Test
   public void testWriteWithoutPsWithNonNullableTableField() throws Exception {
     final int rowsToAdd = 10;
 
@@ -662,17 +685,17 @@ public class JdbcIOTest implements Serializable {
 
     PreparedStatement psMocked = mock(PreparedStatement.class);
 
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT64).set(row, psMocked, 0, schema.getField(0).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTES).set(row, psMocked, 1, schema.getField(1).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BOOLEAN).set(row, psMocked, 2, schema.getField(2).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.STRING).set(row, psMocked, 3, schema.getField(3).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DECIMAL).set(row, psMocked, 4, schema.getField(4).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DOUBLE).set(row, psMocked, 5, schema.getField(5).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.FLOAT).set(row, psMocked, 6, schema.getField(6).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT32).set(row, psMocked, 7, schema.getField(7).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DATETIME).set(row, psMocked, 8, schema.getField(8).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT16).set(row, psMocked, 9, schema.getField(9).getName());
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTE).set(row, psMocked, 10, schema.getField(10).getName());
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT64).set(row, psMocked, 0, SchemaUtil.FieldWithIndex.of(schema.getField(0), 0));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTES).set(row, psMocked, 1, SchemaUtil.FieldWithIndex.of(schema.getField(1), 1));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BOOLEAN).set(row, psMocked, 2, SchemaUtil.FieldWithIndex.of(schema.getField(2), 2));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.STRING).set(row, psMocked, 3, SchemaUtil.FieldWithIndex.of(schema.getField(3), 3));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DECIMAL).set(row, psMocked, 4, SchemaUtil.FieldWithIndex.of(schema.getField(4), 4));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DOUBLE).set(row, psMocked, 5, SchemaUtil.FieldWithIndex.of(schema.getField(5), 5));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.FLOAT).set(row, psMocked, 6, SchemaUtil.FieldWithIndex.of(schema.getField(6), 6));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT32).set(row, psMocked, 7, SchemaUtil.FieldWithIndex.of(schema.getField(7), 7));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.DATETIME).set(row, psMocked, 8, SchemaUtil.FieldWithIndex.of(schema.getField(8), 8));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.INT16).set(row, psMocked, 9, SchemaUtil.FieldWithIndex.of(schema.getField(9), 9));
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.BYTE).set(row, psMocked, 10, SchemaUtil.FieldWithIndex.of(schema.getField(10), 10));
 
     verify(psMocked, times(1)).setLong(1, 42L);
     verify(psMocked, times(1)).setBytes(2, "binary".getBytes(Charset.forName("UTF-8")));
@@ -708,9 +731,9 @@ public class JdbcIOTest implements Serializable {
 
     PreparedStatement psMocked = mock(PreparedStatement.class);
 
-    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_DATE_TYPE).set(row, psMocked, 0, schema.getField(0).getName());
-    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIME_TYPE).set(row, psMocked, 1, schema.getField(1).getName());
-    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE).set(row, psMocked, 2, schema.getField(2).getName());
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_DATE_TYPE).set(row, psMocked, 0, SchemaUtil.FieldWithIndex.of(schema.getField(0), 0));
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIME_TYPE).set(row, psMocked, 1, SchemaUtil.FieldWithIndex.of(schema.getField(1), 1));
+    JdbcUtil.getPreparedStatementSetCaller(LogicalTypes.JDBC_TIMESTAMP_WITH_TIMEZONE_TYPE).set(row, psMocked, 2, SchemaUtil.FieldWithIndex.of(schema.getField(2), 2));
 
     verify(psMocked, times(1)).setDate(1, new Date(row.getDateTime(0).getMillis()));
     verify(psMocked, times(1)).setTime(2, new Time(row.getDateTime(1).getMillis()));
@@ -739,7 +762,7 @@ public class JdbcIOTest implements Serializable {
     when(psMocked.getConnection()).thenReturn(connectionMocked);
     when(connectionMocked.createArrayOf(anyString(), any())).thenReturn(arrayMocked);
 
-    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.array(Schema.FieldType.STRING)).set(row, psMocked, 0, schema.getField(0).getName());
+    JdbcUtil.getPreparedStatementSetCaller(Schema.FieldType.array(Schema.FieldType.STRING)).set(row, psMocked, 0, SchemaUtil.FieldWithIndex.of(schema.getField(0), 0));
 
     verify(psMocked, times(1)).setArray(1, arrayMocked);
   }
