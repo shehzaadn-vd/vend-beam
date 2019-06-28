@@ -30,8 +30,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+/** Provides utility functions for working with {@link JdbcIO}. */
 public class JdbcUtil {
 
+    /** Generates an insert statement based on {@Link Schema.Field} **/
     public static String generateStatement(String tableName, List<Schema.Field> fields) {
 
         String fieldNames = IntStream.range(0, fields.size()).mapToObj((index) -> {
@@ -45,6 +47,7 @@ public class JdbcUtil {
         return String.format("INSERT INTO %s(%s) VALUES(%s)", tableName, fieldNames, valuePlaceholder);
     }
 
+    /** PreparedStatementSetCaller for Schema Field types **/
     private static Map<Schema.TypeName, JdbcIO.PreparedStatementSetCaller> TYPE_NAME_PS_SET_CALLER_MAP = new EnumMap<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>(
             ImmutableMap.<Schema.TypeName, JdbcIO.PreparedStatementSetCaller>builder()
                     .put(Schema.TypeName.BYTE, (element, ps, i, fieldWithIndex) -> ps.setByte(i + 1, element.getByte(fieldWithIndex.getIndex())))
@@ -60,6 +63,7 @@ public class JdbcUtil {
                     .put(Schema.TypeName.STRING, createStringCaller())
                     .build());
 
+    /** PreparedStatementSetCaller for Schema Field Logical types **/
     public static JdbcIO.PreparedStatementSetCaller getPreparedStatementSetCaller(Schema.FieldType fieldType) {
         switch (fieldType.getTypeName()) {
             case ARRAY:
