@@ -567,8 +567,8 @@ class ApproximateQuantilesTest(unittest.TestCase):
                                             reverse=True)
     data = DisplayData.create_from(aq)
     expected_items = [
-        DisplayDataItemMatcher('num_quantiles', aq.num_quantiles),
-        DisplayDataItemMatcher('compare', aq.compare.__class__),
+        DisplayDataItemMatcher('num_quantiles', aq._num_quantiles),
+        DisplayDataItemMatcher('compare', aq._compare.__class__),
         DisplayDataItemMatcher('key', aq._key.__class__),
         DisplayDataItemMatcher('reverse', aq._reverse.__class__)
     ]
@@ -579,8 +579,8 @@ class ApproximateQuantilesTest(unittest.TestCase):
     aq = beam.ApproximateQuantiles.PerKey(3, comparator, key=len, reverse=True)
     data = DisplayData.create_from(aq)
     expected_items = [
-        DisplayDataItemMatcher('num_quantiles', aq.num_quantiles),
-        DisplayDataItemMatcher('compare', aq.compare.__class__),
+        DisplayDataItemMatcher('num_quantiles', aq._num_quantiles),
+        DisplayDataItemMatcher('compare', aq._compare.__class__),
         DisplayDataItemMatcher('key', aq._key.__class__),
         DisplayDataItemMatcher('reverse', aq._reverse.__class__)
     ]
@@ -640,9 +640,9 @@ class ApproximateQuantilesBufferTest(unittest.TestCase):
     combine_fn = ApproximateQuantilesCombineFn.create(
         num_quantiles=10, compare=None, max_num_elements=maxInputSize,
         epsilon=epsilon)
-    self.assertEqual(expectedNumBuffers, combine_fn.num_buffers,
+    self.assertEqual(expectedNumBuffers, combine_fn._num_buffers,
                      "Number of buffers")
-    self.assertEqual(expectedBufferSize, combine_fn.buffer_size, "Buffer size")
+    self.assertEqual(expectedBufferSize, combine_fn._buffer_size, "Buffer size")
 
   @parameterized.expand(_build_quantilebuffer_test_data)
   def test_correctness(self, epsilon, maxInputSize, *args):
@@ -652,8 +652,8 @@ class ApproximateQuantilesBufferTest(unittest.TestCase):
     combine_fn = ApproximateQuantilesCombineFn.create(
         num_quantiles=10, compare=None, max_num_elements=maxInputSize,
         epsilon=epsilon, key=None)
-    b = combine_fn.num_buffers
-    k = combine_fn.buffer_size
+    b = combine_fn._num_buffers
+    k = combine_fn._buffer_size
     n = maxInputSize
     self.assertLessEqual((b - 2) * (1 << (b - 2)) + 0.5, (epsilon * n),
                          '(b-2)2^(b-2) + 1/2 <= eN')

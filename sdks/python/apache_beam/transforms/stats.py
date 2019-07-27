@@ -271,22 +271,24 @@ class ApproximateQuantiles(object):
         converted to key function as Python 3 does not support cmp.
       key: (optional) Key is  a mapping of elements to a comparable key, similar
         to the key argument of Python's sorting methods.
+      reverse: (optional) whether to order things smallest to largest, rather
+        than largest to smallest
     """
 
     def __init__(self, num_quantiles, compare=None, key=None, reverse=False):
-      self.num_quantiles = num_quantiles
-      self.compare = compare
+      self._num_quantiles = num_quantiles
+      self._compare = compare
       self._key = key
       self._reverse = reverse
 
     def expand(self, pcoll):
       return pcoll | CombineGlobally(ApproximateQuantilesCombineFn.create(
-          num_quantiles=self.num_quantiles, compare=self.compare,
+          num_quantiles=self._num_quantiles, compare=self._compare,
           key=self._key, reverse=self._reverse))
 
     def display_data(self):
       return ApproximateQuantiles._display_data(
-          num_quantiles=self.num_quantiles, compare=self.compare, key=self._key,
+          num_quantiles=self._num_quantiles, compare=self._compare, key=self._key,
           reverse=self._reverse)
 
   @typehints.with_input_types(typing.Tuple[K, V])
@@ -304,22 +306,24 @@ class ApproximateQuantiles(object):
         converted to key function as Python 3 does not support cmp.
       key: (optional) Key is  a mapping of elements to a comparable key, similar
         to the key argument of Python's sorting methods.
+      reverse: (optional) whether to order things smallest to largest, rather
+        than largest to smallest
     """
 
     def __init__(self, num_quantiles, compare=None, key=None, reverse=False):
-      self.num_quantiles = num_quantiles
-      self.compare = compare
+      self._num_quantiles = num_quantiles
+      self._compare = compare
       self._key = key
       self._reverse = reverse
 
     def expand(self, pcoll):
       return pcoll | CombinePerKey(ApproximateQuantilesCombineFn.create(
-          num_quantiles=self.num_quantiles, compare=self.compare,
+          num_quantiles=self._num_quantiles, compare=self._compare,
           key=self._key, reverse=self._reverse))
 
     def display_data(self):
       return ApproximateQuantiles._display_data(
-          num_quantiles=self.num_quantiles, compare=self.compare, key=self._key,
+          num_quantiles=self._num_quantiles, compare=self._compare, key=self._key,
           reverse=self._reverse)
 
 
@@ -412,23 +416,18 @@ class ApproximateQuantilesCombineFn(CombineFn):
       paper.
     num_buffers: The number of buffers, corresponding to b in the referenced
       paper.
-    epsilon: (optional) The default error bound is `epsilon`, which holds as
-      long as the number of elements is less than `MAX_NUM_ELEMENTS`.
-      Specifically, if one considers the input as a sorted list x_1, ..., x_N,
-      then the distance between each exact quantile x_c and its
-      approximation x_c' is bounded by `|c - c'| < epsilon * N`. Note that
-      these errors are worst-case scenarios. In practice the accuracy tends to
-      be much better.
     compare: (optional) Comparator function which is an implementation
         of "a < b" taking two arguments (a and b). Which is later
         converted to key function as Python 3 does not support `cmp`.
     key: (optional) Key is a mapping of elements to a comparable key, similar
       to the key argument of Python's sorting methods.
+    reverse: (optional) whether to order things smallest to largest, rather
+        than largest to smallest
   """
 
   # For alternating between biasing up and down in the above even weight
   # collapse operation.
-  offset_jitter = 0
+  _offset_jitter = 0
 
   # The cost (in time and space) to compute quantiles to a given accuracy is a
   # function of the total number of elements in the data set. If an estimate is
@@ -436,8 +435,8 @@ class ApproximateQuantilesCombineFn(CombineFn):
   # errors may exceed the requested tolerance; if too high, efficiency may be
   # non-optimal. The impact is logarithmic with respect to this value, so this
   # default should be fine for most uses.
-  MAX_NUM_ELEMENTS = 1e9
-  qs = None  # Refers to the _QuantileState
+  _MAX_NUM_ELEMENTS = 1e9
+  _qs = None  # Refers to the _QuantileState
 
   # TODO(mszb): For Python 3, remove compare and only keep key.
   def __init__(self, num_quantiles, buffer_size, num_buffers, compare=None,
@@ -457,16 +456,41 @@ class ApproximateQuantilesCombineFn(CombineFn):
           else compare(a, b)
       key = lambda elem: cmp_to_key(self._comparator)(elem)
 
-    self.compare = compare
-    self.num_quantiles = num_quantiles
-    self.buffer_size = buffer_size
-    self.num_buffers = num_buffers
+    self._compare = compare
+    self._num_quantiles = num_quantiles
+    self._buffer_size = buffer_size
+    self._num_buffers = num_buffers
     self._key = key
 
   @classmethod
   def create(cls, num_quantiles, epsilon=None, max_num_elements=None,
              compare=None, key=None, reverse=False):
-    max_num_elements = max_num_elements or cls.MAX_NUM_ELEMENTS
+    """
+    Creates an approximate quantiles combiner with the given comparator and
+    and desired number of quantiles.
+
+    Args:
+      num_quantiles: Number of quantiles to produce. It is the size of the final
+        output list, including the mininum and maximum value items.
+      epsilon: (optional) The default error bound is `epsilon`, which holds as
+        long as the number of elements is less than `_MAX_NUM_ELEMENTS`.
+        Specifically, if one considers the input as a sorted list x_1, ..., x_N,
+        then the distance between each exact quantile x_c and its
+        approximation x_c' is bounded by `|c - c'| < epsilon * N`. Note that
+        these errors are worst-case scenarios. In practice the accuracy tends to
+        be much better.
+      max_num_elements: (optional) The cost (in time and space) to compute
+        quantiles to a given accuracy is a function of the total number of
+        elements in the data set.
+      compare: (optional) Comparator function which is an implementation
+          of "a < b" taking two arguments (a and b). Which is later
+          converted to key function as Python 3 does not support `cmp`.
+      key: (optional) Key is a mapping of elements to a comparable key, similar
+        to the key argument of Python's sorting methods.
+      reverse: (optional) whether to order things smallest to largest, rather
+          than largest to smallest
+    """
+    max_num_elements = max_num_elements or cls._MAX_NUM_ELEMENTS
     if not epsilon:
       epsilon = 1.0 / num_quantiles
     b = 2
@@ -477,20 +501,20 @@ class ApproximateQuantilesCombineFn(CombineFn):
     return cls(num_quantiles=num_quantiles, compare=compare, buffer_size=k,
                num_buffers=b, key=key, reverse=reverse)
 
-  def add_unbuffered(self, elem):
+  def _add_unbuffered(self, elem):
     """
     Add a new buffer to the unbuffered list, creating a new buffer and
     collapsing if needed.
     """
-    self.qs.unbuffered_elements.append(elem)
-    if len(self.qs.unbuffered_elements) == self.qs.buffer_size:
-      self.qs.unbuffered_elements.sort(key=self._key)
-      heapq.heappush(self.qs.buffers,
-                     _QuantileBuffer(elements=self.qs.unbuffered_elements))
-      self.qs.unbuffered_elements = []
-      self.collapse_if_needed()
+    self._qs.unbuffered_elements.append(elem)
+    if len(self._qs.unbuffered_elements) == self._qs.buffer_size:
+      self._qs.unbuffered_elements.sort(key=self._key)
+      heapq.heappush(self._qs.buffers,
+                     _QuantileBuffer(elements=self._qs.unbuffered_elements))
+      self._qs.unbuffered_elements = []
+      self._collapse_if_needed()
 
-  def offset(self, newWeight):
+  def _offset(self, newWeight):
     """
     If the weight is even, we must round up or down. Alternate between these
     two options to avoid a bias.
@@ -498,10 +522,10 @@ class ApproximateQuantilesCombineFn(CombineFn):
     if newWeight % 2 == 1:
       return (newWeight + 1) / 2
     else:
-      self.offset_jitter = 2 - self.offset_jitter
-      return (newWeight + self.offset_jitter) / 2
+      self._offset_jitter = 2 - self._offset_jitter
+      return (newWeight + self._offset_jitter) / 2
 
-  def collapse(self, buffers):
+  def _collapse(self, buffers):
     new_level = 0
     new_weight = 0
     for buffer_elem in buffers:
@@ -511,23 +535,23 @@ class ApproximateQuantilesCombineFn(CombineFn):
       # computed shards.  If they differ we take the max.
       new_level = max([new_level, buffer_elem.level + 1])
       new_weight = new_weight + buffer_elem.weight
-    new_elements = self.interpolate(buffers, self.buffer_size, new_weight,
-                                    self.offset(new_weight))
+    new_elements = self._interpolate(buffers, self._buffer_size, new_weight,
+                                    self._offset(new_weight))
     return _QuantileBuffer(new_elements, new_level, new_weight)
 
-  def collapse_if_needed(self):
-    while len(self.qs.buffers) > self.num_buffers:
+  def _collapse_if_needed(self):
+    while len(self._qs.buffers) > self._num_buffers:
       toCollapse = []
-      toCollapse.append(heapq.heappop(self.qs.buffers))
-      toCollapse.append(heapq.heappop(self.qs.buffers))
+      toCollapse.append(heapq.heappop(self._qs.buffers))
+      toCollapse.append(heapq.heappop(self._qs.buffers))
       minLevel = toCollapse[1].level
 
-      while len(self.qs.buffers) > 0 and self.qs.buffers[0].level == minLevel:
-        toCollapse.append(heapq.heappop(self.qs.buffers))
+      while len(self._qs.buffers) > 0 and self._qs.buffers[0].level == minLevel:
+        toCollapse.append(heapq.heappop(self._qs.buffers))
 
-      heapq.heappush(self.qs.buffers, self.collapse(toCollapse))
+      heapq.heappush(self._qs.buffers, self._collapse(toCollapse))
 
-  def interpolate(self, i_buffers, count, step, offset):
+  def _interpolate(self, i_buffers, count, step, offset):
     """
     Emulates taking the ordered union of all elements in buffers, repeated
     according to their weight, and picking out the (k * step + offset)-th
@@ -567,10 +591,10 @@ class ApproximateQuantilesCombineFn(CombineFn):
     return new_elements
 
   def create_accumulator(self):
-    self.qs = _QuantileState(buffer_size=self.buffer_size,
-                             num_buffers=self.num_buffers,
+    self._qs = _QuantileState(buffer_size=self._buffer_size,
+                             num_buffers=self._num_buffers,
                              unbuffered_elements=[], buffers=[])
-    return self.qs
+    return self._qs
 
   def add_input(self, quantile_state, element):
     """
@@ -582,28 +606,28 @@ class ApproximateQuantilesCombineFn(CombineFn):
       quantile_state.min_val = element
     elif self._comparator(element, quantile_state.max_val) > 0:
       quantile_state.max_val = element
-    self.add_unbuffered(elem=element)
-    return self.qs
+    self._add_unbuffered(elem=element)
+    return self._qs
 
   def merge_accumulators(self, accumulators):
     """Merges all the accumulators (quantile state) as one."""
-    self.qs = self.create_accumulator()
+    self._qs = self.create_accumulator()
     for accumulator in accumulators:
       if accumulator.is_empty():
         continue
-      if not self.qs.min_val or self._comparator(accumulator.min_val,
-                                                 self.qs.min_val) < 0:
-        self.qs.min_val = accumulator.min_val
-      if not self.qs.max_val or self._comparator(accumulator.max_val,
-                                                 self.qs.max_val) > 0:
-        self.qs.max_val = accumulator.max_val
+      if not self._qs.min_val or self._comparator(accumulator.min_val,
+                                                 self._qs.min_val) < 0:
+        self._qs.min_val = accumulator.min_val
+      if not self._qs.max_val or self._comparator(accumulator.max_val,
+                                                 self._qs.max_val) > 0:
+        self._qs.max_val = accumulator.max_val
 
       for unbuffered_element in accumulator.unbuffered_elements:
-        self.add_unbuffered(unbuffered_element)
+        self._add_unbuffered(unbuffered_element)
 
-      self.qs.buffers.extend(accumulator.buffers)
-    self.collapse_if_needed()
-    return self.qs
+      self._qs.buffers.extend(accumulator.buffers)
+    self._collapse_if_needed()
+    return self._qs
 
   def extract_output(self, accumulator):
     """
@@ -623,11 +647,11 @@ class ApproximateQuantilesCombineFn(CombineFn):
       accumulator.unbuffered_elements.sort(key=self._key)
       all_elems.append(_QuantileBuffer(accumulator.unbuffered_elements))
 
-    step = 1.0 * total_count / (self.num_quantiles - 1)
-    offset = (1.0 * total_count - 1) / (self.num_quantiles - 1)
+    step = 1.0 * total_count / (self._num_quantiles - 1)
+    offset = (1.0 * total_count - 1) / (self._num_quantiles - 1)
 
     quantiles = [accumulator.min_val]
     quantiles.extend(
-        self.interpolate(all_elems, self.num_quantiles - 2, step, offset))
+        self._interpolate(all_elems, self._num_quantiles - 2, step, offset))
     quantiles.append(accumulator.max_val)
     return quantiles
