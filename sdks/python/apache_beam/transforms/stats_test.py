@@ -22,6 +22,7 @@ from __future__ import division
 import math
 import random
 import unittest
+from builtins import range
 from collections import defaultdict
 
 import hamcrest as hc
