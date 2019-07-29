@@ -288,8 +288,8 @@ class ApproximateQuantiles(object):
 
     def display_data(self):
       return ApproximateQuantiles._display_data(
-          num_quantiles=self._num_quantiles, compare=self._compare, key=self._key,
-          reverse=self._reverse)
+          num_quantiles=self._num_quantiles, compare=self._compare,
+          key=self._key, reverse=self._reverse)
 
   @typehints.with_input_types(typing.Tuple[K, V])
   @typehints.with_output_types(typing.List[typing.Tuple[K, V]])
@@ -323,8 +323,8 @@ class ApproximateQuantiles(object):
 
     def display_data(self):
       return ApproximateQuantiles._display_data(
-          num_quantiles=self._num_quantiles, compare=self._compare, key=self._key,
-          reverse=self._reverse)
+          num_quantiles=self._num_quantiles, compare=self._compare,
+          key=self._key, reverse=self._reverse)
 
 
 class _QuantileBuffer(object):
@@ -470,15 +470,15 @@ class ApproximateQuantilesCombineFn(CombineFn):
     and desired number of quantiles.
 
     Args:
-      num_quantiles: Number of quantiles to produce. It is the size of the final
-        output list, including the mininum and maximum value items.
+      num_quantiles: Number of quantiles to produce. It is the size of the
+      final output list, including the mininum and maximum value items.
       epsilon: (optional) The default error bound is `epsilon`, which holds as
         long as the number of elements is less than `_MAX_NUM_ELEMENTS`.
-        Specifically, if one considers the input as a sorted list x_1, ..., x_N,
-        then the distance between each exact quantile x_c and its
+        Specifically, if one considers the input as a sorted list x_1, ...,
+        x_N, then the distance between each exact quantile x_c and its
         approximation x_c' is bounded by `|c - c'| < epsilon * N`. Note that
-        these errors are worst-case scenarios. In practice the accuracy tends to
-        be much better.
+        these errors are worst-case scenarios. In practice the accuracy tends
+        to be much better.
       max_num_elements: (optional) The cost (in time and space) to compute
         quantiles to a given accuracy is a function of the total number of
         elements in the data set.
@@ -536,7 +536,7 @@ class ApproximateQuantilesCombineFn(CombineFn):
       new_level = max([new_level, buffer_elem.level + 1])
       new_weight = new_weight + buffer_elem.weight
     new_elements = self._interpolate(buffers, self._buffer_size, new_weight,
-                                    self._offset(new_weight))
+                                     self._offset(new_weight))
     return _QuantileBuffer(new_elements, new_level, new_weight)
 
   def _collapse_if_needed(self):
@@ -592,8 +592,8 @@ class ApproximateQuantilesCombineFn(CombineFn):
 
   def create_accumulator(self):
     self._qs = _QuantileState(buffer_size=self._buffer_size,
-                             num_buffers=self._num_buffers,
-                             unbuffered_elements=[], buffers=[])
+                              num_buffers=self._num_buffers,
+                              unbuffered_elements=[], buffers=[])
     return self._qs
 
   def add_input(self, quantile_state, element):
@@ -616,10 +616,10 @@ class ApproximateQuantilesCombineFn(CombineFn):
       if accumulator.is_empty():
         continue
       if not self._qs.min_val or self._comparator(accumulator.min_val,
-                                                 self._qs.min_val) < 0:
+                                                  self._qs.min_val) < 0:
         self._qs.min_val = accumulator.min_val
       if not self._qs.max_val or self._comparator(accumulator.max_val,
-                                                 self._qs.max_val) > 0:
+                                                  self._qs.max_val) > 0:
         self._qs.max_val = accumulator.max_val
 
       for unbuffered_element in accumulator.unbuffered_elements:
