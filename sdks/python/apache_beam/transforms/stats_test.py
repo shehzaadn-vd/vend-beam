@@ -562,29 +562,29 @@ class ApproximateQuantilesTest(unittest.TestCase):
                                                           reverse=True)
       assert_that(quantiles, equal_to([["ccccc", "aaa", "b"]]))
 
+  @staticmethod
+  def _display_data_matcher(instance, comparator):
+    expected_items = [
+        DisplayDataItemMatcher('num_quantiles', instance._num_quantiles),
+        DisplayDataItemMatcher('compare', comparator.__name__),
+        DisplayDataItemMatcher('key', str(instance._key.__name__)),
+        DisplayDataItemMatcher('reverse', str(instance._reverse))
+    ]
+    return expected_items
+
   def test_global_display_data(self):
     comparator = lambda a, b: a - b  # order by length
     aq = beam.ApproximateQuantiles.Globally(3, comparator, key=len,
                                             reverse=True)
     data = DisplayData.create_from(aq)
-    expected_items = [
-        DisplayDataItemMatcher('num_quantiles', aq._num_quantiles),
-        DisplayDataItemMatcher('compare', aq._compare.__class__),
-        DisplayDataItemMatcher('key', aq._key.__class__),
-        DisplayDataItemMatcher('reverse', aq._reverse.__class__)
-    ]
+    expected_items = self._display_data_matcher(aq, comparator)
     hc.assert_that(data.items, hc.contains_inanyorder(*expected_items))
 
   def test_perkey_display_data(self):
     comparator = lambda a, b: a - b  # order by length
     aq = beam.ApproximateQuantiles.PerKey(3, comparator, key=len, reverse=True)
     data = DisplayData.create_from(aq)
-    expected_items = [
-        DisplayDataItemMatcher('num_quantiles', aq._num_quantiles),
-        DisplayDataItemMatcher('compare', aq._compare.__class__),
-        DisplayDataItemMatcher('key', aq._key.__class__),
-        DisplayDataItemMatcher('reverse', aq._reverse.__class__)
-    ]
+    expected_items = self._display_data_matcher(aq, comparator)
     hc.assert_that(data.items, hc.contains_inanyorder(*expected_items))
 
 

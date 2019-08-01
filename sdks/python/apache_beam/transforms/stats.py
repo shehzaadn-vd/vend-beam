@@ -251,10 +251,14 @@ class ApproximateQuantiles(object):
   def _display_data(num_quantiles, compare, key, reverse):
     return {
         'num_quantiles': DisplayDataItem(num_quantiles, label="Quantile Count"),
-        'compare': DisplayDataItem(compare.__class__,
-                                   label='Record Comparer FN'),
-        'key': DisplayDataItem(key.__class__, label='Record Comparer Key'),
-        'reverse': DisplayDataItem(reverse.__class__, label='Is reversed')
+        'compare': DisplayDataItem(compare.__name__
+                                   if hasattr(compare, '__name__')
+                                   else compare.__class__.__name__,
+                                   label='Record Comparer FN').drop_if_none(),
+        'key': DisplayDataItem(key.__name__ if hasattr(key, '__name__')
+                               else key.__class__.__name__,
+                               label='Record Comparer Key'),
+        'reverse': DisplayDataItem(str(reverse), label='Is reversed')
     }
 
   @typehints.with_input_types(T)
@@ -292,7 +296,7 @@ class ApproximateQuantiles(object):
           key=self._key, reverse=self._reverse)
 
   @typehints.with_input_types(typing.Tuple[K, V])
-  @typehints.with_output_types(typing.List[typing.Tuple[K, V]])
+  @typehints.with_output_types(typing.Tuple[K, typing.List[V]])
   class PerKey(PTransform):
     """
     PTransform takes PCollection of KV and returns a list based on each key
@@ -328,7 +332,9 @@ class ApproximateQuantiles(object):
 
 
 class _QuantileBuffer(object):
-  """A single buffer in the sense of the referenced algorithm."""
+  """A single buffer in the sense of the referenced algorithm.
+  (see http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.6.6513&rep=rep1
+  &type=pdf and ApproximateQuantilesCombineFn for further information)"""
 
   def __init__(self, elements, level=0, weight=1):
     self.elements = elements
@@ -512,7 +518,7 @@ class ApproximateQuantilesCombineFn(CombineFn):
       heapq.heappush(self._qs.buffers,
                      _QuantileBuffer(elements=self._qs.unbuffered_elements))
       self._qs.unbuffered_elements = []
-      self._collapse_if_needed()
+      self._collapse_if_needed(self._qs)
 
   def _offset(self, newWeight):
     """
@@ -539,17 +545,17 @@ class ApproximateQuantilesCombineFn(CombineFn):
                                      self._offset(new_weight))
     return _QuantileBuffer(new_elements, new_level, new_weight)
 
-  def _collapse_if_needed(self):
-    while len(self._qs.buffers) > self._num_buffers:
+  def _collapse_if_needed(self, qs):
+    while len(qs.buffers) > self._num_buffers:
       toCollapse = []
-      toCollapse.append(heapq.heappop(self._qs.buffers))
-      toCollapse.append(heapq.heappop(self._qs.buffers))
+      toCollapse.append(heapq.heappop(qs.buffers))
+      toCollapse.append(heapq.heappop(qs.buffers))
       minLevel = toCollapse[1].level
 
-      while len(self._qs.buffers) > 0 and self._qs.buffers[0].level == minLevel:
-        toCollapse.append(heapq.heappop(self._qs.buffers))
+      while len(qs.buffers) > 0 and qs.buffers[0].level == minLevel:
+        toCollapse.append(heapq.heappop(qs.buffers))
 
-      heapq.heappush(self._qs.buffers, self._collapse(toCollapse))
+      heapq.heappush(qs.buffers, self._collapse(toCollapse))
 
   def _interpolate(self, i_buffers, count, step, offset):
     """
@@ -611,23 +617,23 @@ class ApproximateQuantilesCombineFn(CombineFn):
 
   def merge_accumulators(self, accumulators):
     """Merges all the accumulators (quantile state) as one."""
-    self._qs = self.create_accumulator()
+    qs = self.create_accumulator()
     for accumulator in accumulators:
       if accumulator.is_empty():
         continue
-      if not self._qs.min_val or self._comparator(accumulator.min_val,
-                                                  self._qs.min_val) < 0:
-        self._qs.min_val = accumulator.min_val
-      if not self._qs.max_val or self._comparator(accumulator.max_val,
-                                                  self._qs.max_val) > 0:
-        self._qs.max_val = accumulator.max_val
+      if not qs.min_val or self._comparator(accumulator.min_val,
+                                            qs.min_val) < 0:
+        qs.min_val = accumulator.min_val
+      if not qs.max_val or self._comparator(accumulator.max_val,
+                                            qs.max_val) > 0:
+        qs.max_val = accumulator.max_val
 
       for unbuffered_element in accumulator.unbuffered_elements:
         self._add_unbuffered(unbuffered_element)
 
-      self._qs.buffers.extend(accumulator.buffers)
-    self._collapse_if_needed()
-    return self._qs
+      qs.buffers.extend(accumulator.buffers)
+    self._collapse_if_needed(qs)
+    return qs
 
   def extract_output(self, accumulator):
     """
