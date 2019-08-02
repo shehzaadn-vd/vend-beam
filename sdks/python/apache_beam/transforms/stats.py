@@ -447,26 +447,21 @@ class ApproximateQuantilesCombineFn(CombineFn):
   # TODO(mszb): For Python 3, remove compare and only keep key.
   def __init__(self, num_quantiles, buffer_size, num_buffers, compare=None,
                key=None, reverse=False):
-    if compare:
-      warnings.warn('Compare is not available in Python 3, use key instead.')
+    compare = None  # todo: remove this
 
     if key:
       self._comparator = lambda a, b: (key(a) < key(b)) - (key(a) > key(b)) \
         if reverse else (key(a) > key(b)) - (key(a) < key(b))
     else:
-      if not compare:
-        self._comparator = lambda a, b: (a < b) - (a > b) if reverse \
-          else (a > b) - (a < b)
-      else:
-        self._comparator = lambda a, b: compare(b, a) if reverse \
-          else compare(a, b)
-      key = lambda elem: cmp_to_key(self._comparator)(elem)
+      self._comparator = lambda a, b: (a < b) - (a > b) if reverse \
+        else (a > b) - (a < b)
 
     self._compare = compare
     self._num_quantiles = num_quantiles
     self._buffer_size = buffer_size
     self._num_buffers = num_buffers
     self._key = key
+    self._reverse = reverse
 
   @classmethod
   def create(cls, num_quantiles, epsilon=None, max_num_elements=None,
@@ -504,7 +499,7 @@ class ApproximateQuantilesCombineFn(CombineFn):
       b = b + 1
     b = b - 1
     k = max(2, math.ceil(max_num_elements / float(1 << (b - 1))))
-    return cls(num_quantiles=num_quantiles, compare=compare, buffer_size=k,
+    return cls(num_quantiles=num_quantiles, compare=None, buffer_size=k,
                num_buffers=b, key=key, reverse=reverse)
 
   def _add_unbuffered(self, elem):
@@ -514,7 +509,7 @@ class ApproximateQuantilesCombineFn(CombineFn):
     """
     self._qs.unbuffered_elements.append(elem)
     if len(self._qs.unbuffered_elements) == self._qs.buffer_size:
-      self._qs.unbuffered_elements.sort(key=self._key)
+      self._qs.unbuffered_elements.sort(key=self._key, reverse=self._reverse)
       heapq.heappush(self._qs.buffers,
                      _QuantileBuffer(elements=self._qs.unbuffered_elements))
       self._qs.unbuffered_elements = []
@@ -566,7 +561,9 @@ class ApproximateQuantilesCombineFn(CombineFn):
 
     iterators = []
     new_elements = []
-    compare_key = lambda x: self._key(x['value'])
+    compare_key = None
+    if self._key:
+      compare_key = lambda x: self._key(x['value'])
     for buffer_elem in i_buffers:
       iterators.append(buffer_elem.sized_iterator())
 
@@ -577,9 +574,11 @@ class ApproximateQuantilesCombineFn(CombineFn):
     # from it.
     if sys.version_info[0] < 3:
       sorted_elem = iter(
-          sorted(itertools.chain.from_iterable(iterators), key=compare_key))
+          sorted(itertools.chain.from_iterable(iterators), key=compare_key,
+                 reverse=self._reverse))
     else:
-      sorted_elem = heapq.merge(*iterators, key=compare_key)
+      sorted_elem = heapq.merge(*iterators, key=compare_key,
+                                reverse=self._reverse)
 
     weighted_element = next(sorted_elem)
     current = weighted_element['weight']

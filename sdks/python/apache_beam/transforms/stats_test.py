@@ -394,22 +394,7 @@ class ApproximateQuantilesTest(unittest.TestCase):
       quantiles = pc | beam.ApproximateQuantiles.Globally(5)
       assert_that(quantiles, equal_to([[0, 25, 50, 75, 100]]))
 
-  def test_quantiles_globaly_comparable(self):
-    with TestPipeline() as p:
-      data = range(101)
-      comparator = lambda a, b: b - a  # descending comparator
-      pc = p | Create(data)
-      quantiles = pc | beam.ApproximateQuantiles.Globally(5, comparator)
-      assert_that(quantiles, equal_to([[100, 75, 50, 25, 0]]))
-
-    with TestPipeline() as p:
-      data = range(101)
-      comparator = lambda a, b: b - a  # descending comparator
-      pc = p | Create(data)
-      quantiles = pc | beam.ApproximateQuantiles.Globally(5, comparator,
-                                                          reverse=True)
-      assert_that(quantiles, equal_to([[0, 25, 50, 75, 100]]))
-
+  def test_quantiles_globaly_reversed(self):
     with TestPipeline() as p:
       data = range(101)
       pc = p | Create(data)
@@ -423,22 +408,7 @@ class ApproximateQuantilesTest(unittest.TestCase):
       quantiles = pc | beam.ApproximateQuantiles.PerKey(2)
       assert_that(quantiles, equal_to([('a', [1, 3]), ('b', [1, 100])]))
 
-  def test_quantiles_per_key_descending_order(self):
-    with TestPipeline() as p:
-      data = self._kv_data
-      comparator = lambda a, b: b - a  # descending comparator
-      pc = p | Create(data)
-      quantiles = pc | beam.ApproximateQuantiles.PerKey(2, comparator)
-      assert_that(quantiles, equal_to([('a', [3, 1]), ('b', [100, 1])]))
-
-    with TestPipeline() as p:
-      data = self._kv_data
-      comparator = lambda a, b: b - a  # descending comparator
-      pc = p | Create(data)
-      quantiles = pc | beam.ApproximateQuantiles.PerKey(2, comparator,
-                                                        reverse=True)
-      assert_that(quantiles, equal_to([('a', [1, 3]), ('b', [1, 100])]))
-
+  def test_quantiles_per_key_reversed(self):
     with TestPipeline() as p:
       data = self._kv_data
       pc = p | Create(data)
@@ -488,7 +458,7 @@ class ApproximateQuantilesTest(unittest.TestCase):
                                                         absoluteError=20)
       assert_that(qunatiles, self._quantiles_matcher(aprox_quantiles))
 
-  def test_random_combines(self):
+  def test_random_quantiles(self):
     with TestPipeline() as p:
       data = list(range(101))
       random.shuffle(data)
@@ -496,17 +466,23 @@ class ApproximateQuantilesTest(unittest.TestCase):
       quantiles = pc | beam.ApproximateQuantiles.Globally(5)
       assert_that(quantiles, equal_to([[0, 25, 50, 75, 100]]))
 
-  def test_duplicats(self):
+  def test_duplicates(self):
+    y = list(range(101))
+    data = []
+    for _ in range(10):
+      data.extend(y)
+
     with TestPipeline() as p:
-      y = list(range(101))
-      data = []
-      for _ in range(10):
-        data.extend(y)
       pc = p | Create(data)
       quantiles = pc | beam.ApproximateQuantiles.Globally(5)
       assert_that(quantiles, equal_to([[0, 25, 50, 75, 100]]))
 
-  def test_lots_of_duplicats(self):
+    with TestPipeline() as p:
+      pc = p | Create(data)
+      quantiles = pc | beam.ApproximateQuantiles.Globally(5, reverse=True)
+      assert_that(quantiles, equal_to([[100, 75, 50, 25, 0]]))
+
+  def test_lots_of_duplicates(self):
     with TestPipeline() as p:
       data = [1]
       data.extend([2 for _ in range(299)])
@@ -531,25 +507,12 @@ class ApproximateQuantilesTest(unittest.TestCase):
       quantiles = pc | beam.ApproximateQuantiles.Globally(5)
       assert_that(quantiles, equal_to([[1, 1, 2, 4, 1000]]))
 
-  def test_alternate_comparator(self):
+  def test_alternate_quantiles(self):
     data = ["aa", "aaa", "aaaa", "b", "ccccc", "dddd", "zz"]
     with TestPipeline() as p:
       pc = p | Create(data)
       quantiles = pc | beam.ApproximateQuantiles.Globally(3)
       assert_that(quantiles, equal_to([["aa", "b", "zz"]]))
-
-    with TestPipeline() as p:
-      pc = p | Create(data)
-      comparator = lambda a, b: len(a) - len(b)  # order by length
-      quantiles = pc | beam.ApproximateQuantiles.Globally(3, comparator)
-      assert_that(quantiles, equal_to([["b", "aaa", "ccccc"]]))
-
-    with TestPipeline() as p:
-      pc = p | Create(data)
-      comparator = lambda a, b: len(a) - len(b)  # order by length
-      quantiles = pc | beam.ApproximateQuantiles.Globally(3, comparator,
-                                                          reverse=True)
-      assert_that(quantiles, equal_to([["ccccc", "aaa", "b"]]))
 
     with TestPipeline() as p:
       pc = p | Create(data)
