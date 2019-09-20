@@ -111,6 +111,7 @@ REQUIRED_PACKAGES = [
     'future>=0.16.0,<1.0.0',
     'futures>=3.2.0,<4.0.0; python_version < "3.0"',
     'grpcio>=1.12.1,<2',
+    'grpcio-gcp>=0.2.2,<1',
     'hdfs>=2.1.0,<3.0.0',
     'httplib2>=0.8,<=0.12.0',
     'mock>=1.0.1,<3.0.0',
@@ -158,6 +159,7 @@ GCP_REQUIREMENTS = [
     'google-cloud-bigquery>=1.6.0,<1.18.0',
     'google-cloud-core>=0.28.1,<2',
     'google-cloud-bigtable>=0.31.1,<1.1.0',
+    'google-cloud-spanner>=1.7.1<1.8.0'
 ]
 
 
