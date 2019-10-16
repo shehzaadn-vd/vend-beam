@@ -68,7 +68,6 @@ read operation using ReadFromSpanner.with_transaction(). For Example:
 from __future__ import absolute_import
 
 import collections
-import warnings
 
 from google.cloud.spanner import Client
 from google.cloud.spanner import KeySet
@@ -78,7 +77,7 @@ import apache_beam as beam
 from apache_beam.transforms import PTransform
 from apache_beam.utils.annotations import experimental
 
-__all__ = ['ReadFromSpanner', 'ReadOperation',]
+__all__ = ['ReadFromSpanner', 'ReadOperation', 'create_transaction', ]
 
 
 class ReadOperation(collections.namedtuple("ReadOperation",
@@ -91,7 +90,7 @@ class ReadOperation(collections.namedtuple("ReadOperation",
   __slots__ = ()
 
   @classmethod
-  def with_query(cls, sql, params=None, param_types=None):
+  def query(cls, sql, params=None, param_types=None):
     return cls(
         read_operation="process_query_batch",
         batch_action="generate_query_batches", transaction_action="execute_sql",
@@ -99,7 +98,7 @@ class ReadOperation(collections.namedtuple("ReadOperation",
     )
 
   @classmethod
-  def with_table(cls, table, columns, index="", keyset=None):
+  def table(cls, table, columns, index="", keyset=None):
     keyset = keyset or KeySet(all_=True)
     if not isinstance(keyset, KeySet):
       raise ValueError("keyset must be an instance of class "
@@ -128,96 +127,9 @@ class _BeamSpannerConfiguration(collections.namedtuple(
     return snapshot_options
 
 
-class ReadFromSpanner(object):
-
-  def __init__(self, project_id, instance_id, database_id, pool=None,
-               read_timestamp=None, exact_staleness=None, credentials=None,
-               user_agent=None):
-    """
-    Read from Google Spanner.
-
-    Args:
-      project_id: The ID of the project which owns the instances, tables
-        and data.
-      instance_id: The ID of the instance.
-      database_id: The ID of the database instance.
-      user_agent: (Optional) The user agent to be used with API request.
-      pool: (Optional) session pool to be used by database.
-      read_timestamp: (Optional) Execute all reads at the given timestamp.
-      exact_staleness: (Optional) Execute all reads at a timestamp that is
-        ``exact_staleness`` old.
-    """
-    warnings.warn("ReadFromSpanner is experimental.", FutureWarning,
-                  stacklevel=2)
-    self._transaction = None
-    self._options = _BeamSpannerConfiguration(
-        project=project_id, instance=instance_id, database=database_id,
-        credentials=credentials, user_agent=user_agent, pool=pool,
-        snapshot_read_timestamp=read_timestamp,
-        snapshot_exact_staleness=exact_staleness
-    )
-
-  def with_query(self, sql, params=None, param_types=None):
-    read_operation = [ReadOperation.with_query(sql, params, param_types)]
-    return self.read_all(read_operation)
-
-  def with_table(self, table, columns, index="", keyset=None):
-    read_operation = [ReadOperation.with_table(
-        table=table, columns=columns, index=index, keyset=keyset
-    )]
-    return self.read_all(read_operation)
-
-  def read_all(self, read_operations):
-    if self._transaction is None:
-      return _BatchRead(read_operations=read_operations,
-                        spanner_configuration=self._options)
-    else:
-      return _NaiveSpannerRead(transaction=self._transaction,
-                               read_operations=read_operations,
-                               spanner_configuration=self._options)
-
-  @staticmethod
-  @experimental(extra_message="(ReadFromSpanner)")
-  def create_transaction(project_id, instance_id, database_id, credentials=None,
-                         user_agent=None, pool=None, read_timestamp=None,
-                         exact_staleness=None):
-    """
-    Return the snapshot state for reuse in transaction.
-
-    Args:
-      project_id: The ID of the project which owns the instances, tables
-        and data.
-      instance_id: The ID of the instance.
-      database_id: The ID of the database instance.
-      credentials: (Optional) The OAuth2 Credentials to use for this client.
-      user_agent: (Optional) The user agent to be used with API request.
-      pool: (Optional) session pool to be used by database.
-      read_timestamp: (Optional) Execute all reads at the given timestamp.
-      exact_staleness: (Optional) Execute all reads at a timestamp that is
-        ``exact_staleness`` old.
-      """
-    _snapshot_options = {}
-    if read_timestamp:
-      _snapshot_options['read_timestamp'] = read_timestamp
-    if exact_staleness:
-      _snapshot_options['exact_staleness'] = exact_staleness
-
-    spanner_client = Client(project=project_id, credentials=credentials,
-                            user_agent=user_agent)
-    instance = spanner_client.instance(instance_id)
-    database = instance.database(database_id, pool=pool)
-    snapshot = database.batch_snapshot(**_snapshot_options)
-    return snapshot.to_dict()
-
-  def with_transaction(self, transaction):
-    self._transaction = transaction
-    return self
-
-
 class _NaiveSpannerReadDoFn(beam.DoFn):
 
-  def __init__(self, snapshot_dict, spanner_configuration):
-    self._snapshot_dict = snapshot_dict
+  def __init__(self, spanner_configuration):
     self._spanner_configuration = spanner_configuration
     self._snapshot = None
 
@@ -227,14 +139,20 @@ class _NaiveSpannerReadDoFn(beam.DoFn):
   def setup(self):
     spanner_client = Client(self._spanner_configuration.project)
     instance = spanner_client.instance(self._spanner_configuration.instance)
-    database = instance.database(self._spanner_configuration.database,
-                                 pool=self._spanner_configuration.pool)
-    self._snapshot = BatchSnapshot.from_dict(database, self._snapshot_dict)
+    self._database = instance.database(self._spanner_configuration.database,
+                                       pool=self._spanner_configuration.pool)
 
-  def process(self, element):
+  def process(self, element, transaction_info):
+    self._snapshot = BatchSnapshot.from_dict(self._database, transaction_info)
     with self._snapshot._get_session().transaction() as transaction:
-      for row in getattr(transaction, element.transaction_action)(
-          **element.kwargs):
+      if element.transaction_action == 'execute_sql':
+        transaction_read = transaction.execute_sql
+      elif element.transaction_action == 'read':
+        transaction_read = transaction.read
+      else:
+        raise ValueError("Not implemented ")
+
+      for row in transaction_read(**element.kwargs):
         yield row
 
   def teardown(self):
@@ -242,66 +160,85 @@ class _NaiveSpannerReadDoFn(beam.DoFn):
       self._snapshot.close()
 
 
-class _NaiveSpannerRead(PTransform):
-  """
-  A naive version of Spanner read that use transactions for read and execute
-  sql methods from the previous state.
-  """
+class _CreateReadPartitions(beam.DoFn):
 
-  def __init__(self, transaction, read_operations, spanner_configuration):
-    self._transaction = transaction
-    self._read_operations = read_operations
+  def __init__(self, snapshot_dict, spanner_configuration):
+    self._snapshot_dict = snapshot_dict
     self._spanner_configuration = spanner_configuration
 
-  def expand(self, pbegin):
-    return (pbegin
-            | 'Add Read Operations' >> beam.Create(self._read_operations)
-            | 'Reshuffle' >> beam.Reshuffle()
-            | 'Perform Read' >> beam.ParDo(
-                _NaiveSpannerReadDoFn(
-                    snapshot_dict=self._transaction,
-                    spanner_configuration=self._spanner_configuration
-                )))
+  def to_runner_api_parameter(self, context):
+    return self.to_runner_api_pickled(context)
 
-
-class _BatchRead(PTransform):
-  """
-  This transform uses the Cloud Spanner BatchSnapshot to perform reads from
-  multiple partitions.
-  """
-
-  def __init__(self, read_operations, spanner_configuration):
-
-    if not isinstance(spanner_configuration, _BeamSpannerConfiguration):
-      raise ValueError("spanner_configuration must be a valid "
-                       "_BeamSpannerConfiguration object.")
-
-    self._read_operations = read_operations
-    self._spanner_configuration = spanner_configuration
-
-  def expand(self, pbegin):
+  def setup(self):
     spanner_client = Client(project=self._spanner_configuration.project,
                             credentials=self._spanner_configuration.credentials,
                             user_agent=self._spanner_configuration.user_agent)
     instance = spanner_client.instance(self._spanner_configuration.instance)
-    database = instance.database(self._spanner_configuration.database,
-                                 pool=self._spanner_configuration.pool)
-    snapshot = database.batch_snapshot(**self._spanner_configuration
-                                       .snapshot_options)
+    self._database = instance.database(self._spanner_configuration.database,
+                                       pool=self._spanner_configuration.pool)
+    self._snapshot = self._database.batch_snapshot(**self._spanner_configuration
+                                                   .snapshot_options)
+    self._snapshot_dict = self._snapshot.to_dict()
 
-    reads = [
-        {"read_operation": ro.read_operation, "partitions": p}
-        for ro in self._read_operations
-        for p in getattr(snapshot, ro.batch_action)(**ro.kwargs)
-    ]
+  def process(self, element):
+    if element.batch_action == 'generate_query_batches':
+      partitioning_action = self._snapshot.generate_query_batches
+    elif element.batch_action == 'generate_read_batches':
+      partitioning_action = self._snapshot.generate_read_batches
 
-    return (pbegin
-            | 'Generate Partitions' >> beam.Create(reads)
-            | 'Reshuffle' >> beam.Reshuffle()
-            | 'Read From Partitions' >> beam.ParDo(
-                _ReadFromPartitionFn(
-                    snapshot_dict=snapshot.to_dict(),
-                    spanner_configuration=self._spanner_configuration)))
+    for p in partitioning_action(**element.kwargs):
+      yield {"read_operation": element.read_operation, "partitions": p,
+             "transaction_info": self._snapshot_dict}
+
+  def teardown(self):
+    if self._snapshot:
+      self._snapshot.close()
+
+
+class _CreateTransactionFn(beam.DoFn):
+
+  def __init__(self, project_id, instance_id, database_id, credentials,
+               user_agent, pool, read_timestamp,
+               exact_staleness):
+    self._project_id = project_id
+    self._instance_id = instance_id
+    self._database_id = database_id
+    self._credentials = credentials
+    self._user_agent = user_agent
+    self._pool = pool
+
+    self._snapshot_options = {}
+    if read_timestamp:
+      self._snapshot_options['read_timestamp'] = read_timestamp
+    if exact_staleness:
+      self._snapshot_options['exact_staleness'] = exact_staleness
+    self._snapshot = None
+
+  def setup(self):
+    self._spanner_client = Client(project=self._project_id,
+                                  credentials=self._credentials,
+                                  user_agent=self._user_agent)
+    self._instance = self._spanner_client.instance(self._instance_id)
+    self._database = self._instance.database(self._database_id, pool=self._pool)
+
+  def process(self, element, *args, **kwargs):
+    self._snapshot = self._database.batch_snapshot(**self._snapshot_options)
+    return [self._snapshot.to_dict()]
+
+  def teardown(self):
+    if self._snapshot:
+      self._snapshot.close()
+
+
+@beam.transforms.ptransform_fn
+def create_transaction(pcoll, project_id, instance_id, database_id,
+                       credentials=None,
+                       user_agent=None, pool=None, read_timestamp=None,
+                       exact_staleness=None):
+  return (pcoll | beam.Create([1]) | beam.ParDo(_CreateTransactionFn(
+      project_id, instance_id, database_id, credentials,
+      user_agent, pool, read_timestamp,
+      exact_staleness)))
 
 
 class _ReadFromPartitionFn(beam.DoFn):
@@ -318,16 +255,93 @@ class _ReadFromPartitionFn(beam.DoFn):
     instance = spanner_client.instance(self._spanner_configuration.instance)
     self._database = instance.database(self._spanner_configuration.database,
                                        pool=self._spanner_configuration.pool)
+    self._snapshot = self._database.batch_snapshot(**self._spanner_configuration
+                                                   .snapshot_options)
 
   def process(self, element):
-    self._snapshot = BatchSnapshot.from_dict(self._database,
-                                             self._snapshot_dict)
-    read_operation = element['read_operation']
-    elem = element['partitions']
+    self._snapshot = BatchSnapshot.from_dict(
+        self._database,
+        element['transaction_info']
+    )
 
-    for row in getattr(self._snapshot, read_operation)(elem):
+    if element['read_operation'] == 'process_query_batch':
+      read_action = self._snapshot.process_query_batch
+    elif element['read_operation'] == 'process_read_batch':
+      read_action = self._snapshot.process_read_batch
+    else:
+      raise ValueError("Unknown read action.")
+
+    for row in read_action(element['partitions']):
       yield row
 
   def teardown(self):
     if self._snapshot:
       self._snapshot.close()
+
+
+@experimental()
+class ReadFromSpanner(PTransform):
+
+  def __init__(self, project_id, instance_id, database_id, pool=None,
+               read_timestamp=None, exact_staleness=None, credentials=None,
+               user_agent=None,
+               sql=None, params=None, param_types=None,  # with_query
+               table=None, columns=None, index="", keyset=None,  # with_table
+               read_operations=None,  # for read all
+               transaction=None
+               ):
+    self._configuration = _BeamSpannerConfiguration(
+        project=project_id, instance=instance_id, database=database_id,
+        credentials=credentials, user_agent=user_agent, pool=pool,
+        snapshot_read_timestamp=read_timestamp,
+        snapshot_exact_staleness=exact_staleness
+    )
+
+    self._read_operations = read_operations
+    self._transaction = transaction
+
+    if self._read_operations is None:
+      if table is not None:
+        if columns is None:
+          raise ValueError("Columns are required with the table name.")
+        self._read_operations = [ReadOperation.table(
+            table=table, columns=columns, index=index, keyset=keyset)]
+      elif sql is not None:
+        self._read_operations = [ReadOperation.query(
+            sql=sql, params=params, param_types=param_types)]
+
+  def expand(self, pbegin):
+    if self._read_operations is not None and isinstance(pbegin,
+                                                        beam.pvalue.PBegin):
+      pcoll = pbegin.pipeline | beam.Create(self._read_operations)
+    elif not isinstance(pbegin, beam.pvalue.PBegin):
+      if self._read_operations is not None:
+        raise ValueError("Read operation in the constructor only works with "
+                         "the root of the pipeline.")
+      pcoll = pbegin
+    else:
+      raise ValueError("Spanner required read operation, sql or table "
+                       "with columns.")
+
+    if self._transaction is None:
+      p = (pcoll
+           | 'Generate Partitions' >> beam.ParDo(
+              _CreateReadPartitions(
+                  snapshot_dict=None,
+                  spanner_configuration=self._configuration
+              )
+          ).with_input_types(ReadOperation)
+           | 'Reshuffle' >> beam.Reshuffle()
+           | 'Read From Partitions' >> beam.ParDo(
+              _ReadFromPartitionFn(
+                  snapshot_dict=None,
+                  spanner_configuration=self._configuration))
+           )
+    else:
+      p = (pcoll
+           | 'Reshuffle' >> beam.Reshuffle().with_input_types(ReadOperation)
+           | 'Perform Read' >> beam.ParDo(
+              _NaiveSpannerReadDoFn(spanner_configuration=self._configuration),
+              beam.pvalue.AsSingleton(self._transaction))
+           )
+    return p
